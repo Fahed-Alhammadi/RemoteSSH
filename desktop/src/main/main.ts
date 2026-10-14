@@ -4,11 +4,13 @@ import { Events, invokeMethods } from '../shared/api'
 import type { MenuAction } from '../shared/types'
 import { Controller } from './controller'
 import type { SecretCipher } from './store/siteStore'
+import { Updater } from './updater'
 
 app.setName('RemoteSSH')
 if (process.platform === 'win32') app.setAppUserModelId('app.remotessh.RemoteSSH')
 
 let window: BrowserWindow | null = null
+const updater = new Updater(() => window)
 
 /** OS keyring encryption. Linux's "basic_text" fallback is plain obfuscation, so it counts as unavailable. */
 const cipher: SecretCipher = {
@@ -116,7 +118,14 @@ function buildMenu(controller: Controller): Menu {
         ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const }]),
       ],
     },
-    { label: '&Help', submenu: [{ label: 'About RemoteSSH', click: send('about') }] },
+    {
+      label: '&Help',
+      submenu: [
+        { label: 'Check for Updates…', click: () => void updater.check(true) },
+        { type: 'separator' },
+        { label: 'About RemoteSSH', click: send('about') },
+      ],
+    },
   ]
   return Menu.buildFromTemplate(template)
 }
@@ -136,6 +145,7 @@ if (!app.requestSingleInstanceLock()) {
       ipcMain.handle(method, (_event, ...args: unknown[]) => (handlers[method] as (...a: unknown[]) => unknown)(...args))
     }
     createWindow(controller)
+    if (controller.settings.checkForUpdates) setTimeout(() => void updater.check(false), 5000)
     app.on('activate', () => {
       if (!window) createWindow(controller)
     })

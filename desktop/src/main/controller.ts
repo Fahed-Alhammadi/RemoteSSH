@@ -77,6 +77,10 @@ export class Controller implements Prompter {
     )
   }
 
+  get settings(): AppSettings {
+    return this.settingsStore.value
+  }
+
   /** IPC handlers by method name. */
   handlers(): Record<InvokeMethod, Handler> {
     return {

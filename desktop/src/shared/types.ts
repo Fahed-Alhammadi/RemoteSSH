@@ -54,6 +54,7 @@ export interface AppSettings {
   keepAlive: boolean
   retryCount: number
   showDirectoryComparison: boolean
+  checkForUpdates: boolean
 }
 
 export const defaultSettings: AppSettings = {
@@ -67,6 +68,7 @@ export const defaultSettings: AppSettings = {
   keepAlive: true,
   retryCount: 2,
   showDirectoryComparison: true,
+  checkForUpdates: true,
 }
 
 export type TransferDirection = 'download' | 'upload'

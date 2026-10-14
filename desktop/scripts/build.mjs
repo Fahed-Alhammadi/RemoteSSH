@@ -16,7 +16,7 @@ const common = {
   minify: production,
   logLevel: 'warning',
   // Runtime dependencies stay in node_modules (ssh2 has optional native add-ons).
-  external: ['electron', 'ssh2', 'basic-ftp'],
+  external: ['electron', 'ssh2', 'basic-ftp', 'electron-updater'],
 }
 await esbuild({ ...common, entryPoints: ['src/main/main.ts'], outfile: 'out/main.js' })
 await esbuild({ ...common, entryPoints: ['src/preload/preload.ts'], outfile: 'out/preload.js' })

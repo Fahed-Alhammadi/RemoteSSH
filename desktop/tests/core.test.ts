@@ -10,7 +10,7 @@ import { SiteStore, type SecretCipher } from '../src/main/store/siteStore'
 import { uniqueLocalName } from '../src/main/transfers'
 import { displayAddress, effectivePort, makeSite, parseQuickConnect } from '../src/shared/site'
 import type { TransferItem } from '../src/shared/types'
-import { Permissions, RemotePath } from '../src/shared/util'
+import { compareVersions, Permissions, RemotePath } from '../src/shared/util'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'remotessh-test-'))
 
@@ -166,5 +166,14 @@ describe('stores', () => {
     fs.writeFileSync(path.join(dir, 'a.txt'), '')
     fs.writeFileSync(path.join(dir, 'a (1).txt'), '')
     expect(path.basename(uniqueLocalName(path.join(dir, 'a.txt')))).toBe('a (2).txt')
+  })
+})
+
+describe('compareVersions', () => {
+  it('orders dotted versions numerically and ignores a leading v and suffixes', () => {
+    expect(compareVersions('v1.2.10', '1.2.9')).toBe(1)
+    expect(compareVersions('1.0.0', 'v1.0.0')).toBe(0)
+    expect(compareVersions('1.0', '1.0.1')).toBe(-1)
+    expect(compareVersions('2.0.0-beta.1', '1.9.9')).toBe(1)
   })
 })

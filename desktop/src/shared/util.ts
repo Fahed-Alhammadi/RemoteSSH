@@ -81,3 +81,15 @@ export function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
   return String(error)
 }
+
+/** Compares dotted versions ("v1.2.10" > "1.2.9"); pre-release suffixes are ignored. */
+export function compareVersions(a: string, b: string): number {
+  const parts = (v: string) => v.replace(/^v/i, '').split(/[-+]/)[0].split('.').map((n) => parseInt(n, 10) || 0)
+  const x = parts(a)
+  const y = parts(b)
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0)
+    if (d !== 0) return Math.sign(d)
+  }
+  return 0
+}

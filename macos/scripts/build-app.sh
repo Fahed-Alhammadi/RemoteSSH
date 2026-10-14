@@ -12,7 +12,8 @@ fi
 
 swift build -c release --product RemoteSSH
 BIN=$(swift build -c release --show-bin-path)/RemoteSSH
-VERSION=$(git describe --tags --always 2>/dev/null || echo "1.0.0")
+# VERSION may be passed in (the release workflow uses the tag); otherwise the nearest tag is used.
+VERSION=${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || echo "1.0.0")}
 VERSION=${VERSION#v}
 
 APP=dist/RemoteSSH.app

@@ -20,6 +20,7 @@ RemoteSSH has two apps that share one feature set and one site file format:
 - **Browsing:** local and remote panes side by side, with sortable columns, a filter, file-type icons, hidden files, directory comparison, synchronized browsing, and drag & drop between panes and from your file manager.
 - **File operations:** create, rename, delete (recursively), change permissions, and View/Edit (open a remote file locally and upload it again when you save).
 - **Transfer queue:** parallel transfers, queued/failed/done tabs, automatic retries, resume, a choice of what to do when a file already exists, and speed limits. The queue is kept across restarts.
+- **Automatic updates:** checks GitHub for a new release at startup (or *Check for Updates…* in the menu), then downloads, installs and relaunches. The Windows portable `.exe` and Linux `.tar.gz` builds only open the download page.
 - **Import/export:** `File → Export Sites…` writes a `.remotessh` file and `File → Import from RemoteSSH…` reads one. The same file works on every platform. Passwords are only included if you choose to.
 
 ## Download

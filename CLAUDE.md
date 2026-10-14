@@ -12,8 +12,8 @@ free of personal data (no real hosts, users, keys or local paths in code, tests 
 - `.github/workflows/` — `ci.yml` (desktop on Ubuntu/Windows, Swift on macOS), `release.yml` (tag `v*` → draft release with all packages)
 - `macos/` — SwiftPM package:
   - `Sources/CCurl` — libcurl shim. `Sources/CRSAShim` — BoringSSL RSA prototypes.
-  - `Sources/RemoteSSHCore/` — engine and storage (`Models/`, `Engine/`, `Storage/`, `Queue/`).
-  - `Sources/RemoteSSH/` — SwiftUI app: `Support/` (state and transfers) and `Views/`.
+  - `Sources/RemoteSSHCore/` — engine and storage (`Models/`, `Engine/`, `Storage/`, `Queue/`, `Update/ReleaseCheck` for the GitHub latest-release lookup).
+  - `Sources/RemoteSSH/` — SwiftUI app: `Support/` (state, transfers, `Updater`: download → SHA-256/bundle-ID/codesign check → swap bundle via detached shell → relaunch) and `Views/`.
   - `Tests/` — tests. `scripts/` — `build-app.sh`, `integration-test.sh`.
 - `desktop/` — Electron app:
   - `src/shared/` — `types.ts` (mirrors the Swift Codable models), `site.ts` (quickconnect parsing), `util.ts`, `api.ts` (IPC contract).
@@ -21,6 +21,7 @@ free of personal data (no real hosts, users, keys or local paths in code, tests 
     - `main.ts` — window and menu.
     - `controller.ts` — IPC handlers, connection, prompts, log batching, `EditWatcher`.
     - `transfers.ts` — `TransferManager`.
+    - `updater.ts` — GitHub-release updates (electron-updater for NSIS/AppImage/deb; portable/tar.gz only link to the release page).
     - `engine/` — `session.ts` (interfaces, `Throttle`, `Mutex`), `sftpSession.ts` (ssh2), `ftpSession.ts` (basic-ftp), `localFS.ts`.
     - `store/` — `siteStore` (safeStorage secrets), `siteArchive`, `knownHosts`, `settingsStore` (+ `QueueStore`).
   - `src/preload/preload.ts` — exposes `window.remotessh`.
@@ -68,9 +69,11 @@ free of personal data (no real hosts, users, keys or local paths in code, tests 
   - On Linux, the `basic_text` safeStorage backend counts as "no keyring", so passwords are not saved.
 - **Icons.** SF Symbols on macOS, lucide-react on desktop. No FileZilla branding.
 - **Pins.** Citadel is pinned to exactly 0.12.0 (`RSASHA2.swift` reads a Citadel internal). On macOS 27, SDK 26.5 is needed with CLT only.
+- **Updates.** Both apps read `releases/latest` of `Fahed-Alhammadi/RemoteSSH` (drafts are invisible until published). The release workflow sets the version from the tag (`npm version`, `VERSION=` for `build-app.sh`) and uploads `latest*.yml` + `*.blockmap` for electron-updater. Mac update toggle is UserDefaults `RemoteSSH.checkForUpdates` (kept out of `AppSettings`, whose synthesized Codable would drop old settings on a new key).
 - **Linux .deb.** `build.deb.depends` must list the Electron runtime libraries explicitly (the defaults miss libgbm1/libasound2).
 
 ## Change Log
+- 2026-10-14: Over-the-air updates from GitHub releases in both apps (startup check + "Check for Updates…" menu + setting). Fixed release builds ignoring the tag version (desktop was always 1.0.0; Mac used `git describe` on a shallow clone).
 - 2026-10-14: GitHub Actions bumped to Node 24 versions (checkout/setup-node/upload-artifact v7, download-artifact v8, action-gh-release v3).
 - 2026-10-14: MIT `LICENSE`; homepage/author/maintainer set to GitHub user Fahed-Alhammadi (noreply address). Git repo initialised with a repo-local noreply commit email.
 - 2026-10-14: Added the Windows/Linux Electron app (`desktop/`) with feature parity, a shared `.remotessh` format and live tests that run on macOS and Linux. Turned the repo into a monorepo (`macos/`, `desktop/`, shared `assets/` and `scripts/`). Added GitHub CI/release workflows. Removed private data for publishing: the FileRemote migration code, the committed test private key (now generated at runtime) and the SF Symbols in the app icon. `.remotessh` passwords are now a string-keyed JSON object.

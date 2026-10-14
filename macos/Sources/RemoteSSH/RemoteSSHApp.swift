@@ -16,7 +16,10 @@ struct RemoteSSHApp: App {
             MainView()
                 .environment(model)
                 .frame(minWidth: 960, minHeight: 640)
-                .onAppear { NSApplication.shared.activate(ignoringOtherApps: true) }
+                .onAppear {
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                    Updater.shared.checkAtLaunch()
+                }
         }
         .commands { commands }
 
@@ -27,6 +30,9 @@ struct RemoteSSHApp: App {
 
     @CommandsBuilder
     private var commands: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…", systemImage: "arrow.down.circle") { Task { await Updater.shared.check(manual: true) } }
+        }
         CommandGroup(after: .newItem) {
             Button("Site Manager…", systemImage: "square.stack.3d.up") { model.showSiteManager = true }
                 .keyboardShortcut("s", modifiers: .command)

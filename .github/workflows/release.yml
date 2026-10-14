@@ -30,6 +30,9 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci
+      # The app version (and the update metadata) come from the tag, e.g. v1.2.0 → 1.2.0.
+      - run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+        shell: bash
       - run: npm run dist:${{ matrix.target }} -- --publish never
       - uses: actions/upload-artifact@v7
         with:
@@ -39,6 +42,8 @@ jobs:
             desktop/release/*.AppImage
             desktop/release/*.deb
             desktop/release/*.tar.gz
+            desktop/release/*.blockmap
+            desktop/release/latest*.yml
 
   macos:
     name: Build macOS
@@ -48,7 +53,7 @@ jobs:
         working-directory: macos
     steps:
       - uses: actions/checkout@v7
-      - run: ./scripts/build-app.sh
+      - run: VERSION="${GITHUB_REF_NAME#v}" ./scripts/build-app.sh
       - run: ditto -c -k --keepParent dist/RemoteSSH.app "dist/RemoteSSH-${GITHUB_REF_NAME#v}-macos.zip"
       - uses: actions/upload-artifact@v7
         with:

@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "basic-ftp": "^6.2.3",
+    "electron-updater": "^6.8.9",
     "ssh2": "^1.17.0"
   },
   "devDependencies": {
@@ -46,7 +47,7 @@
   "build": {
     "appId": "app.remotessh.RemoteSSH",
     "productName": "RemoteSSH",
-    "copyright": "Copyright © RemoteSSH contributors",
+    "copyright": "Copyright © Fahed Alhammadi",
     "directories": {
       "output": "release",
       "buildResources": "resources"
@@ -139,6 +140,14 @@
         "libgbm1",
         "libasound2 | libasound2t64"
       ]
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Fahed-Alhammadi",
+        "repo": "RemoteSSH",
+        "releaseType": "release"
+      }
+    ]
   }
 }

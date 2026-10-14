@@ -47,6 +47,9 @@ export function SettingsDialog(props: { initial: AppSettings; onClose: () => voi
         <label className="check"><input type="checkbox" checked={s.showHiddenFiles} onChange={(e) => setS({ ...s, showHiddenFiles: e.target.checked })} /> Show hidden files</label>
         <label>Comparison</label>
         <label className="check"><input type="checkbox" checked={s.showDirectoryComparison} onChange={(e) => setS({ ...s, showDirectoryComparison: e.target.checked })} /> Highlight differences between panes</label>
+        <h3>Updates</h3>
+        <label>Updates</label>
+        <label className="check"><input type="checkbox" checked={s.checkForUpdates} onChange={(e) => setS({ ...s, checkForUpdates: e.target.checked })} /> Check for updates at startup</label>
       </div>
       <p className="muted small">0 means unlimited. Limits apply to new transfers.</p>
     </Modal>

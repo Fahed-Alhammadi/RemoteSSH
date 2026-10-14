@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @AppStorage(Updater.autoCheckKey) private var checkForUpdates = true
 
     var body: some View {
         @Bindable var model = model
@@ -33,6 +34,14 @@ struct SettingsView: View {
                 Toggle("Show hidden files", isOn: $model.settings.showHiddenFiles)
             }
             .tabItem { Label("Interface", systemImage: "macwindow") }
+
+            Form {
+                Toggle("Check for updates at startup", isOn: $checkForUpdates)
+                Button("Check Now") { Task { await Updater.shared.check(manual: true) } }
+                Text("Updates are downloaded from the project's GitHub releases.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .tabItem { Label("Updates", systemImage: "arrow.down.circle") }
         }
         .formStyle(.grouped)
         .frame(width: 520, height: 320)

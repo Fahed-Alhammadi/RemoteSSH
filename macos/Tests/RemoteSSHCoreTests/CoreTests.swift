@@ -141,3 +141,23 @@ import Testing
         #expect(loaded[0].size == 10)
     }
 }
+
+@Suite struct ReleaseCheckTests {
+    @Test func testCompare() {
+        #expect(ReleaseCheck.compare("v1.2.10", "1.2.9") == .orderedDescending)
+        #expect(ReleaseCheck.compare("1.0.0", "v1.0.0") == .orderedSame)
+        #expect(ReleaseCheck.compare("1.0", "1.0.1") == .orderedAscending)
+    }
+
+    @Test func testParse() throws {
+        let json = """
+        {"tag_name":"v1.4.0","html_url":"https://github.com/o/r/releases/tag/v1.4.0","assets":[
+          {"name":"RemoteSSH-1.4.0-win-x64.exe","browser_download_url":"https://example.com/a.exe"},
+          {"name":"RemoteSSH-1.4.0-macos.zip","browser_download_url":"https://example.com/m.zip","digest":"sha256:ABCDEF"}]}
+        """
+        let info = try ReleaseCheck.parse(Data(json.utf8))
+        #expect(info.version == "1.4.0")
+        #expect(info.downloadURL?.lastPathComponent == "m.zip")
+        #expect(info.sha256 == "abcdef")
+    }
+}
