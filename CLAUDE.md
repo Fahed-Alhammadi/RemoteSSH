@@ -71,6 +71,7 @@ free of personal data (no real hosts, users, keys or local paths in code, tests 
 - **Linux .deb.** `build.deb.depends` must list the Electron runtime libraries explicitly (the defaults miss libgbm1/libasound2).
 
 ## Change Log
+- 2026-10-14: GitHub Actions bumped to Node 24 versions (checkout/setup-node/upload-artifact v7, download-artifact v8, action-gh-release v3).
 - 2026-10-14: MIT `LICENSE`; homepage/author/maintainer set to GitHub user Fahed-Alhammadi (noreply address). Git repo initialised with a repo-local noreply commit email.
 - 2026-10-14: Added the Windows/Linux Electron app (`desktop/`) with feature parity, a shared `.remotessh` format and live tests that run on macOS and Linux. Turned the repo into a monorepo (`macos/`, `desktop/`, shared `assets/` and `scripts/`). Added GitHub CI/release workflows. Removed private data for publishing: the FileRemote migration code, the committed test private key (now generated at runtime) and the SF Symbols in the app icon. `.remotessh` passwords are now a string-keyed JSON object.
 - 2026-10-14: Renamed FileRemote → RemoteSSH. Replaced the FileZilla import with `.remotessh` import/export. New icons, `AppModel` split up, and performance work (batched log, throttled progress, FTP SIZE).
