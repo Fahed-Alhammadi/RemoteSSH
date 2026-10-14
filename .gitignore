@@ -1,0 +1,10 @@
+.DS_Store
+# macOS app (SwiftPM)
+macos/.build/
+macos/.swiftpm/
+macos/dist/
+*.xcodeproj
+# Windows / Linux app (Electron)
+desktop/node_modules/
+desktop/out/
+desktop/release/

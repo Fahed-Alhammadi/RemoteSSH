@@ -1,0 +1,70 @@
+name: Release
+
+# Push a tag like v1.0.0 to build every platform and attach the packages to a draft release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+          - os: windows-latest
+            target: win
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm run dist:${{ matrix.target }} -- --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.target }}
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.AppImage
+            desktop/release/*.deb
+            desktop/release/*.tar.gz
+
+  macos:
+    name: Build macOS
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: macos
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/build-app.sh
+      - run: ditto -c -k --keepParent dist/RemoteSSH.app "dist/RemoteSSH-${GITHUB_REF_NAME#v}-macos.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: macos/dist/*.zip
+
+  release:
+    needs: [desktop, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: artifacts/*

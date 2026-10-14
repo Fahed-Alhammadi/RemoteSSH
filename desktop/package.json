@@ -1,0 +1,144 @@
+{
+  "name": "remotessh",
+  "productName": "RemoteSSH",
+  "version": "1.0.0",
+  "description": "SFTP, FTP and FTPS file transfer client",
+  "license": "MIT",
+  "author": "Fahed Alhammadi",
+  "homepage": "https://github.com/Fahed-Alhammadi/RemoteSSH",
+  "private": true,
+  "main": "out/main.js",
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json && node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:win": "npm run build && electron-builder --win",
+    "test:live": "../scripts/test-servers.sh npx vitest run"
+  },
+  "dependencies": {
+    "basic-ftp": "^6.2.3",
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ssh2": "^1.15.6",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "lucide-react": "^1.57.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.4"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "cpu-features": false,
+    "ssh2": false,
+    "electron-winstaller": false
+  },
+  "build": {
+    "appId": "app.remotessh.RemoteSSH",
+    "productName": "RemoteSSH",
+    "copyright": "Copyright © RemoteSSH contributors",
+    "directories": {
+      "output": "release",
+      "buildResources": "resources"
+    },
+    "files": [
+      "out/**/*",
+      "package.json",
+      "!node_modules/cpu-features/**",
+      "!node_modules/buildcheck/**",
+      "!node_modules/nan/**"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "fileAssociations": [
+      {
+        "ext": "remotessh",
+        "name": "RemoteSSH sites",
+        "description": "RemoteSSH site list"
+      }
+    ],
+    "win": {
+      "icon": "../assets/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "linux": {
+      "icon": "../assets/icon.png",
+      "category": "Network",
+      "synopsis": "SFTP, FTP and FTPS file transfer client",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+      "maintainer": "Fahed Alhammadi <Fahed-Alhammadi@users.noreply.github.com>"
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libgbm1",
+        "libasound2 | libasound2t64"
+      ]
+    }
+  }
+}
