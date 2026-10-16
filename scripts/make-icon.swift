@@ -1,5 +1,6 @@
 // Renders the RemoteSSH app icon (macOS only): swift scripts/make-icon.swift assets/icon.png
 // macOS icon grid: 1024 canvas, 824 body, ~185 corner radius, soft drop shadow.
+// Design: ink squircle, teal→cyan sync ring (two arrows) around a ">_" prompt. Drawn shapes only.
 import AppKit
 
 let canvas: CGFloat = 1024
@@ -11,80 +12,77 @@ func color(_ hex: UInt32, _ alpha: CGFloat = 1) -> NSColor {
 
 image.lockFocus()
 let ctx = NSGraphicsContext.current!.cgContext
+let center = CGPoint(x: 512, y: 512)
 
 // Body with shadow
 let body = NSRect(x: 100, y: 100, width: 824, height: 824)
 let bodyPath = NSBezierPath(roundedRect: body, xRadius: 185, yRadius: 185)
 ctx.saveGState()
 ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: NSColor.black.withAlphaComponent(0.35).cgColor)
-color(0x312E81).setFill()
+color(0x0B1220).setFill()
 bodyPath.fill()
 ctx.restoreGState()
 
-// Gradient fill: indigo → blue → teal
-NSGradient(colors: [color(0x4338CA), color(0x2563EB), color(0x06B6D4)], atLocations: [0, 0.55, 1], colorSpace: .sRGB)!
-    .draw(in: bodyPath, angle: -55)
-// Top highlight
-NSGradient(colors: [NSColor.white.withAlphaComponent(0.22), NSColor.white.withAlphaComponent(0)])!
-    .draw(in: NSBezierPath(roundedRect: NSRect(x: 100, y: 520, width: 824, height: 404), xRadius: 185, yRadius: 185), angle: -90)
-
-// Terminal window
-let term = NSRect(x: 222, y: 330, width: 580, height: 430)
-let termPath = NSBezierPath(roundedRect: term, xRadius: 56, yRadius: 56)
+// Ink gradient with a teal glow from the top-left
+NSGradient(colors: [color(0x0A1019), color(0x0F1E2A), color(0x123A44)], atLocations: [0, 0.6, 1], colorSpace: .sRGB)!
+    .draw(in: bodyPath, angle: 60)
 ctx.saveGState()
-ctx.setShadow(offset: CGSize(width: 0, height: -10), blur: 30, color: NSColor.black.withAlphaComponent(0.30).cgColor)
-color(0x0F172A, 0.92).setFill()
-termPath.fill()
+bodyPath.addClip()
+NSGradient(colors: [color(0x2DD4BF, 0.30), color(0x2DD4BF, 0)])!
+    .draw(fromCenter: NSPoint(x: 330, y: 760), radius: 0, toCenter: NSPoint(x: 330, y: 760), radius: 520, options: [])
 ctx.restoreGState()
-NSColor.white.withAlphaComponent(0.18).setStroke()
-termPath.lineWidth = 4
-termPath.stroke()
+// Hairline rim
+let rim = NSBezierPath(roundedRect: body.insetBy(dx: 3, dy: 3), xRadius: 182, yRadius: 182)
+rim.lineWidth = 6
+NSColor.white.withAlphaComponent(0.10).setStroke()
+rim.stroke()
 
-// Traffic lights
-for (i, hex) in [UInt32(0xFF5F57), 0xFEBC2E, 0x28C840].enumerated() {
-    color(hex).setFill()
-    NSBezierPath(ovalIn: NSRect(x: term.minX + 48 + CGFloat(i) * 52, y: term.maxY - 76, width: 32, height: 32)).fill()
+// Sync ring: two arcs with arrowheads, filled with a teal→cyan→sky gradient
+let radius: CGFloat = 268, stroke: CGFloat = 62
+let ring = CGMutablePath()
+func rad(_ deg: CGFloat) -> CGFloat { deg * .pi / 180 }
+for (start, end) in [(CGFloat(28), CGFloat(150)), (208, 330)] {
+    let arc = CGMutablePath()
+    arc.addArc(center: center, radius: radius, startAngle: rad(start), endAngle: rad(end), clockwise: false)
+    ring.addPath(arc.copy(strokingWithWidth: stroke, lineCap: .round, lineJoin: .round, miterLimit: 10))
+    // Arrowhead at the counter-clockwise end, pointing along the tangent
+    let a = rad(end)
+    let p = CGPoint(x: center.x + radius * cos(a), y: center.y + radius * sin(a))
+    let radial = CGPoint(x: cos(a), y: sin(a)), tangent = CGPoint(x: -sin(a), y: cos(a))
+    let head = CGMutablePath()
+    head.move(to: CGPoint(x: p.x + tangent.x * 96, y: p.y + tangent.y * 96))
+    head.addLine(to: CGPoint(x: p.x + radial.x * 76 - tangent.x * 6, y: p.y + radial.y * 76 - tangent.y * 6))
+    head.addLine(to: CGPoint(x: p.x - radial.x * 76 - tangent.x * 6, y: p.y - radial.y * 76 - tangent.y * 6))
+    head.closeSubpath()
+    ring.addPath(head.copy(strokingWithWidth: 14, lineCap: .round, lineJoin: .round, miterLimit: 10))
+    ring.addPath(head)
 }
+ctx.saveGState()
+ctx.setShadow(offset: CGSize(width: 0, height: 0), blur: 40, color: color(0x2DD4BF, 0.45).cgColor)
+ctx.addPath(ring)
+color(0x2DD4BF).setFill()
+ctx.fillPath()
+ctx.restoreGState()
+ctx.saveGState()
+ctx.addPath(ring)
+ctx.clip()
+NSGradient(colors: [color(0x14B8A6), color(0x22D3EE), color(0x7DD3FC)], atLocations: [0, 0.55, 1], colorSpace: .sRGB)!
+    .draw(in: NSRect(x: 180, y: 180, width: 664, height: 664), angle: 45)
+ctx.restoreGState()
 
-// Prompt ">_" drawn as strokes (no system fonts or symbols, so the icon can be redistributed)
-let cyan = color(0x67E8F9)
-cyan.setStroke()
+// ">_" prompt
+let ink = color(0xF0FDFA)
+ink.setStroke()
 let chevron = NSBezierPath()
-chevron.move(to: NSPoint(x: term.minX + 78, y: term.minY + 250))
-chevron.line(to: NSPoint(x: term.minX + 178, y: term.minY + 170))
-chevron.line(to: NSPoint(x: term.minX + 78, y: term.minY + 90))
-chevron.lineWidth = 38
+chevron.move(to: NSPoint(x: 398, y: 600))
+chevron.line(to: NSPoint(x: 486, y: 512))
+chevron.line(to: NSPoint(x: 398, y: 424))
+chevron.lineWidth = 54
 chevron.lineCapStyle = .round
 chevron.lineJoinStyle = .round
 chevron.stroke()
-cyan.setFill()
-NSBezierPath(roundedRect: NSRect(x: term.minX + 222, y: term.minY + 72, width: 130, height: 36), xRadius: 18, yRadius: 18).fill()
-
-// Sync badge: white disc with an up arrow and a down arrow
-let badge = NSRect(x: 612, y: 172, width: 260, height: 260)
-ctx.saveGState()
-ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 22, color: NSColor.black.withAlphaComponent(0.35).cgColor)
-NSColor.white.setFill()
-NSBezierPath(ovalIn: badge).fill()
-ctx.restoreGState()
-func arrow(x: CGFloat, up: Bool) {
-    let top = badge.midY + 70, bottom = badge.midY - 70
-    let (tip, tail) = up ? (top, bottom) : (bottom, top)
-    let head: CGFloat = up ? -38 : 38
-    let path = NSBezierPath()
-    path.move(to: NSPoint(x: x, y: tail))
-    path.line(to: NSPoint(x: x, y: tip))
-    path.move(to: NSPoint(x: x - 34, y: tip + head))
-    path.line(to: NSPoint(x: x, y: tip))
-    path.line(to: NSPoint(x: x + 34, y: tip + head))
-    path.lineWidth = 24
-    path.lineCapStyle = .round
-    path.lineJoinStyle = .round
-    path.stroke()
-}
-color(0x2563EB).setStroke()
-arrow(x: badge.midX - 40, up: true)
-arrow(x: badge.midX + 40, up: false)
+ink.setFill()
+NSBezierPath(roundedRect: NSRect(x: 520, y: 398, width: 112, height: 50), xRadius: 25, yRadius: 25).fill()
 image.unlockFocus()
 
 let rep = NSBitmapImageRep(data: image.tiffRepresentation!)!

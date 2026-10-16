@@ -442,6 +442,7 @@ export function App() {
   return (
     <div className="app">
       <header className="toolbar">
+        <img className="brand" src="./icon.png" alt="" width={22} height={22} />
         <div className="group">
           <button type="button" className="toolbar-site" onClick={() => setDialog('sites')} title={`Site Manager (${mod}S)`}>
             <Server size={18} /> Sites
@@ -534,11 +535,11 @@ export function App() {
           placeholder={
             connected && remote ? undefined : (
               <div className="unavailable">
-                {conn.state === 'connecting' ? <RefreshCw size={36} className="spin" /> : <Plug size={36} />}
+                <div className="empty-icon">{conn.state === 'connecting' ? <RefreshCw size={26} className="spin" /> : <Plug size={26} />}</div>
                 <h3>{conn.state === 'connecting' ? 'Connecting…' : 'Not connected'}</h3>
                 <p>{conn.state === 'connecting' ? displayAddress(conn.site!) : 'Use Quickconnect above or open the Site Manager.'}</p>
                 {conn.state === 'disconnected' && (
-                  <button type="button" onClick={() => setDialog('sites')}><Server size={14} /> Site Manager</button>
+                  <button type="button" className="primary" onClick={() => setDialog('sites')}><Server size={14} /> Open Site Manager</button>
                 )}
               </div>
             )
@@ -554,6 +555,7 @@ export function App() {
       />
 
       <footer className="statusbar">
+        <span className={`status-dot ${conn.state === 'connected' && !conn.secure ? 'insecure' : conn.state}`} aria-hidden />
         {conn.state === 'connected' && statusSite ? (
           <span className={conn.secure ? 'secure' : 'insecure'}>
             {conn.secure ? <ShieldCheck size={14} /> : <ShieldOff size={14} />}

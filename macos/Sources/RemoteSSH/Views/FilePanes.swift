@@ -120,9 +120,9 @@ struct FileTable: View {
 
     private func color(for e: FileEntry) -> Color {
         switch comparison[e.name] {
-        case .onlyHere: return .green
-        case .different: return .red
-        case .newer: return .orange
+        case .onlyHere: return Theme.success
+        case .different: return Theme.danger
+        case .newer: return Theme.warning
         default: return .primary
         }
     }
@@ -136,7 +136,7 @@ struct LocalPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PathBar(icon: "laptopcomputer", path: model.localPath, enabled: true,
+            PathBar(title: "Local", icon: "laptopcomputer", path: model.localPath, enabled: true,
                     submit: { model.navigateLocal(to: $0) }, up: model.navigateLocalUp)
             Divider()
             FileTable(
@@ -206,7 +206,7 @@ struct RemotePane: View {
     var body: some View {
         let connected = model.connection == .connected
         VStack(spacing: 0) {
-            PathBar(icon: "server.rack", path: model.remotePath, enabled: connected,
+            PathBar(title: "Remote", icon: "server.rack", path: model.remotePath, enabled: connected,
                     submit: { path in Task { await model.navigateRemote(to: path) } },
                     up: { Task { await model.navigateRemote(to: RemotePath.parent(of: model.remotePath)) } })
             Divider()
@@ -222,11 +222,18 @@ struct RemotePane: View {
                     menu: { ids in AnyView(menu(ids)) }
                 )
                 if !connected {
-                    ContentUnavailableView(
-                        model.connection == .connecting ? "Connecting…" : "Not Connected",
-                        systemImage: model.connection == .connecting ? "antenna.radiowaves.left.and.right" : "network.slash",
-                        description: Text(model.connection == .connecting ? "" : "Use Quickconnect or the Site Manager to connect to a server.")
-                    )
+                    ContentUnavailableView {
+                        Label(model.connection == .connecting ? "Connecting…" : "Not Connected",
+                              systemImage: model.connection == .connecting ? "antenna.radiowaves.left.and.right" : "powerplug")
+                            .foregroundStyle(Theme.accent, .secondary)
+                    } description: {
+                        Text(model.connection == .connecting ? "" : "Use Quickconnect or the Site Manager to connect to a server.")
+                    } actions: {
+                        if model.connection != .connecting {
+                            Button("Open Site Manager", systemImage: "square.stack.3d.up") { model.showSiteManager = true }
+                                .buttonStyle(.borderedProminent)
+                        }
+                    }
                     .background(.background)
                 } else if model.remoteBusy {
                     ProgressView().controlSize(.small)
@@ -289,6 +296,7 @@ private struct ChmodTargets: Identifiable {
 
 /// Editable path field; keeps its own text so typing isn't overwritten until navigation succeeds.
 struct PathBar: View {
+    let title: String
     let icon: String
     let path: String
     let enabled: Bool
@@ -297,18 +305,21 @@ struct PathBar: View {
     @State private var text = ""
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon).foregroundStyle(.secondary).frame(width: 18)
-            TextField("Path", text: $text)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { submit(text) }
-            Button(action: up) { Image(systemName: "chevron.up") }
+        HStack(spacing: 8) {
+            PaneChip(title: title, icon: icon)
+            Button(action: up) { Image(systemName: "arrow.turn.left.up") }
                 .buttonStyle(.borderless)
                 .help("Parent folder")
+                .accessibilityLabel("Parent folder")
+            TextField("Path", text: $text)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.callout, design: .monospaced))
+                .accessibilityLabel("\(title) path")
+                .onSubmit { submit(text) }
         }
         .disabled(!enabled)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
         .onAppear { text = path }
         .onChange(of: path) { text = path }
     }

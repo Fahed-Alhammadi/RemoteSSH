@@ -15,6 +15,7 @@ struct RemoteSSHApp: App {
         WindowGroup("RemoteSSH") {
             MainView()
                 .environment(model)
+                .tint(Theme.accent)
                 .frame(minWidth: 960, minHeight: 640)
                 .onAppear {
                     NSApplication.shared.activate(ignoringOtherApps: true)
@@ -24,7 +25,7 @@ struct RemoteSSHApp: App {
         .commands { commands }
 
         Settings {
-            SettingsView().environment(model)
+            SettingsView().environment(model).tint(Theme.accent)
         }
     }
 

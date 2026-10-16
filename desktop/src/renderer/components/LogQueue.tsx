@@ -36,6 +36,7 @@ export function LogView({ lines }: { lines: LogLine[] }) {
   }, [lines.length, virtual.ref])
   return (
     <div className="log" ref={virtual.ref} role="log">
+      {lines.length === 0 && <div className="empty small">No messages yet. Connection activity appears here.</div>}
       <div style={{ height: virtual.padTop }} />
       {lines.slice(virtual.start, virtual.end).map((l) => {
         const { icon: Icon, cls } = logIcons[l.kind]
@@ -71,7 +72,7 @@ export function QueueView(props: {
     return g
   }, [props.items])
   const rows = groups[tab]
-  const virtual = useVirtualRows(rows.length, 30)
+  const virtual = useVirtualRows(rows.length, 34)
   const ids = rows.filter((r) => selected.has(r.id)).map((r) => r.id)
 
   const tabs: { id: Tab; label: string; icon: typeof Clock }[] = [

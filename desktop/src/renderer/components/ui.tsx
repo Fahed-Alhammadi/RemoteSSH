@@ -22,7 +22,7 @@ export function IconButton(props: {
       aria-label={label}
       aria-pressed={active}
     >
-      <Icon size={18} strokeWidth={1.8} color={disabled ? undefined : tint} />
+      <Icon size={18} strokeWidth={1.75} color={disabled ? undefined : tint} />
     </button>
   )
 }

@@ -21,7 +21,7 @@ struct FileIcon: View {
 
     static func style(for e: FileEntry) -> Style {
         if e.name == ".." { return Style(symbol: "arrow.turn.left.up", color: .secondary) }
-        if e.isDirectory { return Style(symbol: e.isLink ? "folder.badge.gearshape" : "folder.fill", color: .accentColor) }
+        if e.isDirectory { return Style(symbol: e.isLink ? "folder.badge.gearshape" : "folder.fill", color: Theme.folder) }
         if e.isLink { return Style(symbol: "link", color: .secondary) }
         return byExtension[(e.name as NSString).pathExtension.lowercased()] ?? Style(symbol: "doc", color: .secondary)
     }

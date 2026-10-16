@@ -110,7 +110,7 @@ struct QuickConnectBar: View {
 
     private func field<Content: View>(_ icon: String, _ help: String, @ViewBuilder _ content: () -> Content) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: icon).foregroundStyle(.secondary)
+            Image(systemName: icon).foregroundStyle(.secondary).accessibilityHidden(true)
             content()
         }
         .help(help)
@@ -124,13 +124,15 @@ struct StatusBar: View {
         HStack(spacing: 8) {
             if let site = model.currentSite, model.connection == .connected {
                 let secure = site.serverProtocol == .sftp || site.encryption != .plain
+                StatusDot(color: secure ? Theme.success : Theme.warning)
                 Image(systemName: secure ? "lock.shield.fill" : "exclamationmark.shield")
-                    .foregroundStyle(secure ? .green : .orange)
+                    .foregroundStyle(secure ? Theme.success : Theme.warning)
                     .help(secure ? "The connection is encrypted" : "The connection is not encrypted")
                 Text(site.displayAddress).foregroundStyle(.secondary)
             } else {
-                Image(systemName: model.connection == .connecting ? "antenna.radiowaves.left.and.right" : "circle.dashed")
-                    .foregroundStyle(.secondary)
+                StatusDot(color: model.connection == .connecting ? Theme.warning : .secondary,
+                          pulsing: model.connection == .connecting)
+                    .id(model.connection == .connecting)
                 Text(model.connection == .connecting ? "Connecting…" : "Not connected").foregroundStyle(.secondary)
             }
             Spacer()
@@ -142,7 +144,7 @@ struct StatusBar: View {
         }
         .font(.caption)
         .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
     }
 }
 

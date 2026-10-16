@@ -39,7 +39,7 @@ private struct LogRow: View {
                 .foregroundStyle(color)
                 .frame(width: 14)
             Text(line.text)
-                .foregroundStyle(line.kind == .error ? .red : .primary)
+                .foregroundStyle(line.kind == .error ? Theme.danger : .primary)
                 .textSelection(.enabled)
         }
         .font(.system(.caption, design: .monospaced))
@@ -57,9 +57,9 @@ private struct LogRow: View {
     private var color: Color {
         switch line.kind {
         case .status, .trace: return .secondary
-        case .command: return .blue
-        case .response: return .green
-        case .error: return .red
+        case .command: return Theme.upload
+        case .response: return Theme.success
+        case .error: return Theme.danger
         }
     }
 }
@@ -84,7 +84,7 @@ struct QueueView: View {
             Table(rows, selection: $selection) {
                 TableColumn("") { item in
                     Image(systemName: item.direction == .upload ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
-                        .foregroundStyle(item.direction == .upload ? .orange : .blue)
+                        .foregroundStyle(item.direction == .upload ? Theme.upload : Theme.download)
                         .help(item.direction == .upload ? "Upload" : "Download")
                 }
                 .width(22)

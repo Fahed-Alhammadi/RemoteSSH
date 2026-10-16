@@ -14,7 +14,7 @@ export interface DragPayload {
 }
 
 type SortKey = 'name' | 'size' | 'type' | 'modified' | 'permissions' | 'owner'
-const ROW = 24
+const ROW = 26
 const DRAG_TYPE = 'application/x-remotessh'
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
@@ -167,12 +167,16 @@ export function FilePane(props: {
 
   return (
     <section className={`pane pane-${props.side}`} onKeyDown={key}>
-      <PathBar icon={props.icon} title={props.title} path={props.path} disabled={!!props.placeholder} onSubmit={props.onNavigate} />
-      <div className="pane-tools">
+      <div className="pane-head">
+        <span className="pane-title">
+          <props.icon size={15} strokeWidth={1.75} />
+          {props.title}
+        </span>
         <IconButton icon={CornerLeftUp} label="Parent directory" onClick={props.onUp} disabled={!props.canGoUp || !!props.placeholder} />
         <IconButton icon={RefreshCw} label="Refresh" onClick={props.onRefresh} disabled={!!props.placeholder} />
+        <PathBar title={props.title} path={props.path} disabled={!!props.placeholder} onSubmit={props.onNavigate} />
         <label className="filter">
-          <Search size={14} />
+          <Search size={14} aria-hidden />
           <input value={filter} placeholder="Filter" onChange={(e) => setFilter(e.target.value)} disabled={!!props.placeholder} />
           {filter && (
             <button type="button" onClick={() => setFilter('')} aria-label="Clear filter">
@@ -261,10 +265,9 @@ export function FilePane(props: {
   )
 }
 
-function PathBar(props: { icon: LucideIcon; title: string; path: string; disabled: boolean; onSubmit: (p: string) => void }) {
+function PathBar(props: { title: string; path: string; disabled: boolean; onSubmit: (p: string) => void }) {
   const [text, setText] = useState(props.path)
   useEffect(() => setText(props.path), [props.path])
-  const Icon = props.icon
   return (
     <form
       className="path-bar"
@@ -273,8 +276,6 @@ function PathBar(props: { icon: LucideIcon; title: string; path: string; disable
         props.onSubmit(text.trim())
       }}
     >
-      <Icon size={16} />
-      <span className="pane-title">{props.title}</span>
       <input value={text} onChange={(e) => setText(e.target.value)} disabled={props.disabled} spellCheck={false} aria-label={`${props.title} path`} />
     </form>
   )

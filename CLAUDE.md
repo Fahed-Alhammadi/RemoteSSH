@@ -7,13 +7,13 @@ and Linux (`desktop/`). It is a clean-room FileZilla-style client; no FileZilla 
 free of personal data (no real hosts, users, keys or local paths in code, tests or docs).
 
 ## Structure
-- `assets/icon.png` — shared 1024px app icon (regenerate with `swift scripts/make-icon.swift assets/icon.png`; drawn shapes only, no SF Symbols or fonts)
+- `assets/icon.png` — shared 1024px app icon: ink squircle, teal→cyan sync ring around a `>_` prompt (regenerate with `swift scripts/make-icon.swift assets/icon.png`; drawn shapes only, no SF Symbols or fonts)
 - `scripts/` — `test-servers.sh` (throwaway sshd + pyftpdlib, exports `RSSH_*` and then runs a command), `test-ftpserver.py`, `make-icon.swift`
 - `.github/workflows/` — `ci.yml` (desktop on Ubuntu/Windows, Swift on macOS), `release.yml` (tag `v*` → draft release with all packages)
 - `macos/` — SwiftPM package:
   - `Sources/CCurl` — libcurl shim. `Sources/CRSAShim` — BoringSSL RSA prototypes.
   - `Sources/RemoteSSHCore/` — engine and storage (`Models/`, `Engine/`, `Storage/`, `Queue/`, `Update/ReleaseCheck` for the GitHub latest-release lookup).
-  - `Sources/RemoteSSH/` — SwiftUI app: `Support/` (state, transfers, `Updater`: download → SHA-256/bundle-ID/codesign check → swap bundle via detached shell → relaunch) and `Views/`.
+  - `Sources/RemoteSSH/` — SwiftUI app: `Support/` (state, transfers, `Updater`: download → SHA-256/bundle-ID/codesign check → swap bundle via detached shell → relaunch) and `Views/` (`Theme.swift`: design tokens, `PaneChip`, `StatusDot`).
   - `Tests/` — tests. `scripts/` — `build-app.sh`, `integration-test.sh`.
 - `desktop/` — Electron app:
   - `src/shared/` — `types.ts` (mirrors the Swift Codable models), `site.ts` (quickconnect parsing), `util.ts`, `api.ts` (IPC contract).
@@ -67,12 +67,14 @@ free of personal data (no real hosts, users, keys or local paths in code, tests 
   - FTPS checks certificates before login.
   - Electron runs with `contextIsolation` and `sandbox`, a CSP, and no navigation.
   - On Linux, the `basic_text` safeStorage backend counts as "no keyring", so passwords are not saved.
-- **Icons.** SF Symbols on macOS, lucide-react on desktop. No FileZilla branding.
+- **Icons.** SF Symbols on macOS, lucide-react on desktop (stroke 1.75; 18px toolbar, 15–16px rows/menus). No FileZilla branding.
+- **Design ("Ink & Teal").** Tokens live in `styles.css` `:root` (light + dark) and `Theme.swift`; keep them in sync and never hard-code hex in components. Accent teal-700 `#0F766E` (light) / teal-400 `#2DD4BF` with dark text (dark). Text pairs meet WCAG AA. Log, panes and queue are 12px-radius cards on `--bg`; state is never colour-only (status dot + text). Motion 120–180 ms, disabled under `prefers-reduced-motion`. macOS stays native (system controls, `.tint(Theme.accent)`).
 - **Pins.** Citadel is pinned to exactly 0.12.0 (`RSASHA2.swift` reads a Citadel internal). On macOS 27, SDK 26.5 is needed with CLT only.
 - **Updates.** Both apps read `releases/latest` of `Fahed-Alhammadi/RemoteSSH` (drafts are invisible until published). The release workflow sets the version from the tag (`npm version`, `VERSION=` for `build-app.sh`) and uploads `latest*.yml` + `*.blockmap` for electron-updater. Mac update toggle is UserDefaults `RemoteSSH.checkForUpdates` (kept out of `AppSettings`, whose synthesized Codable would drop old settings on a new key).
 - **Linux .deb.** `build.deb.depends` must list the Electron runtime libraries explicitly (the defaults miss libgbm1/libasound2).
 
 ## Change Log
+- 2026-10-16: UI and icon redesign ("Ink & Teal"). New app icon. Desktop: token-based stylesheet with light/dark, card layout, one-row pane headers, row hover, status dot, empty states, reduced-motion. macOS: `Theme.swift`, brand tint, pane chips, status dot and a Site Manager action in the empty remote pane.
 - 2026-10-14: Over-the-air updates from GitHub releases in both apps (startup check + "Check for Updates…" menu + setting). Fixed release builds ignoring the tag version (desktop was always 1.0.0; Mac used `git describe` on a shallow clone).
 - 2026-10-14: GitHub Actions bumped to Node 24 versions (checkout/setup-node/upload-artifact v7, download-artifact v8, action-gh-release v3).
 - 2026-10-14: MIT `LICENSE`; homepage/author/maintainer set to GitHub user Fahed-Alhammadi (noreply address). Git repo initialised with a repo-local noreply commit email.
