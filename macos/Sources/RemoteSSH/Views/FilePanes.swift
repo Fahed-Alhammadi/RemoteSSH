@@ -222,19 +222,33 @@ struct RemotePane: View {
                     menu: { ids in AnyView(menu(ids)) }
                 )
                 if !connected {
-                    ContentUnavailableView {
-                        Label(model.connection == .connecting ? "Connecting…" : "Not Connected",
-                              systemImage: model.connection == .connecting ? "antenna.radiowaves.left.and.right" : "powerplug")
-                            .foregroundStyle(Theme.accent, .secondary)
-                    } description: {
-                        Text(model.connection == .connecting ? "" : "Use Quickconnect or the Site Manager to connect to a server.")
-                    } actions: {
-                        if model.connection != .connecting {
+                    let connecting = model.connection == .connecting
+                    VStack(spacing: 8) {
+                        Image(systemName: connecting ? "antenna.radiowaves.left.and.right" : "powerplug")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 52, height: 52)
+                            .background(.background, in: RoundedRectangle(cornerRadius: 14))
+                            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.separator))
+                            .accessibilityHidden(true)
+                        Text(connecting ? "Connecting…" : "Not Connected").font(.headline).padding(.top, 4)
+                        if !connecting {
+                            Text("Use Quickconnect or the Site Manager to connect to a server.")
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
                             Button("Open Site Manager", systemImage: "square.stack.3d.up") { model.showSiteManager = true }
                                 .buttonStyle(.borderedProminent)
+                                .padding(.top, 4)
                         }
                     }
-                    .background(.background)
+                    .padding(20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background {
+                        ZStack {
+                            Rectangle().fill(.background)
+                            RadialGradient(colors: [Theme.accentSoft, .clear], center: .center, startRadius: 0, endRadius: 260)
+                        }
+                    }
                 } else if model.remoteBusy {
                     ProgressView().controlSize(.small)
                 }
