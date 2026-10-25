@@ -5,18 +5,16 @@
 <p align="center">A fast, modern <b>SFTP, FTP and FTPS</b> file transfer client for <b>macOS, Windows and Linux</b>.</p>
 
 <p align="center">
-  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases?q=macOS&expanded=true"><img alt="Download for macOS" src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?filter=macOS%20%2A&display_name=release&label=Download&color=0F766E&style=for-the-badge"></a>
-  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases?q=Windows&expanded=true"><img alt="Download for Windows" src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?filter=Windows%20%2A&display_name=release&label=Download&color=0F766E&style=for-the-badge"></a>
-  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases?q=Linux&expanded=true"><img alt="Download for Linux" src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?filter=Linux%20%2A&display_name=release&label=Download&color=0F766E&style=for-the-badge"></a>
+  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest"><img alt="Download the latest release" src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?label=Download&color=0F766E&style=for-the-badge"></a>
 </p>
 
-RemoteSSH has two code bases that share one feature set and one site file format. Each platform is built and released on its own, with its own version:
+RemoteSSH has two code bases that share one feature set and one site file format:
 
-| Platform | App | Folder | Release tag |
-| --- | --- | --- | --- |
-| macOS 14+ | Native SwiftUI app | [`macos/`](macos) | `macos-v1.2.3` |
-| Windows 10+ (x64, arm64) | Electron + React app from [`electron/`](electron), packaged by [`windows/`](windows) | [`windows/`](windows) | `windows-v1.2.3` |
-| Linux (x64, arm64) | Electron + React app from [`electron/`](electron), packaged by [`linux/`](linux) | [`linux/`](linux) | `linux-v1.2.3` |
+| Platform | App | Folder |
+| --- | --- | --- |
+| macOS 14+ | Native SwiftUI app | [`macos/`](macos) |
+| Windows 10+ (x64, arm64) | Electron + React app from [`electron/`](electron), packaged by [`windows/`](windows) | [`windows/`](windows) |
+| Linux (x64, arm64) | Electron + React app from [`electron/`](electron), packaged by [`linux/`](linux) | [`linux/`](linux) |
 
 ## Features
 
@@ -32,7 +30,7 @@ RemoteSSH has two code bases that share one feature set and one site file format
 
 ## Download
 
-Use the buttons at the top, which always point to each platform's newest release, or browse all [GitHub releases](../../releases). Each release is for one platform:
+Every [release](../../releases/latest) has the packages for all platforms:
 
 - **Windows:** `RemoteSSH-x.y.z-win-x64.exe` (installer), `-win-arm64.exe`, or `RemoteSSH-x.y.z-portable.exe`.
 - **Linux:** `.AppImage`, `.deb` (Debian/Ubuntu) or `.tar.gz`, for x64 and arm64.
@@ -83,15 +81,9 @@ APPLE_API_KEY_PATH=/path/to/AuthKey_XXXXXXXXXX.p8 APPLE_API_ISSUER_ID=<issuer-id
 
 ## Releasing
 
-Each platform has its own workflow and tag. Pushing the tag builds that platform's packages, sets the version from the tag and publishes them as a GitHub release, so the apps can update right away:
+Push a tag such as `v1.2.3`. [`.github/workflows/release.yml`](.github/workflows/release.yml) builds the Windows, Linux and macOS packages, sets the version from the tag and publishes one GitHub release with all of them, so the apps can update right away. A signed Mac app only accepts an update signed by the same Developer ID team.
 
-| Tag | Workflow |
-| --- | --- |
-| `macos-v1.2.3` | [`.github/workflows/macos.yml`](.github/workflows/macos.yml) |
-| `windows-v1.2.3` | [`.github/workflows/windows.yml`](.github/workflows/windows.yml) |
-| `linux-v1.2.3` | [`.github/workflows/linux.yml`](.github/workflows/linux.yml) |
-
-Each app only updates itself from releases with its own tag prefix. A signed Mac app only accepts an update signed by the same Developer ID team. The same workflows also build and test their platform on every push and pull request that touches its code.
+Each platform also has its own build-and-test workflow ([`macos.yml`](.github/workflows/macos.yml), [`windows.yml`](.github/workflows/windows.yml), [`linux.yml`](.github/workflows/linux.yml)) that runs on every push and pull request that touches its code.
 
 ## License
 

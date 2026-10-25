@@ -1,0 +1,126 @@
+name: Release
+
+# Push a tag like v1.2.0 to build every platform and publish one GitHub release with all the packages.
+# The app versions come from the tag. macOS is signed with a Developer ID and notarized.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  electron:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+            dist: windows
+          - os: ubuntu-latest
+            target: linux
+            dist: linux
+    defaults:
+      run:
+        working-directory: electron
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+      - run: npm ci
+      # The app version (and the update metadata) come from the tag, e.g. v1.2.0 → 1.2.0.
+      - run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+      - run: npm test
+      - run: npm run dist:${{ matrix.target }} -- --publish never
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.dist }}
+          path: |
+            ${{ matrix.dist }}/dist/*.exe
+            ${{ matrix.dist }}/dist/*.AppImage
+            ${{ matrix.dist }}/dist/*.deb
+            ${{ matrix.dist }}/dist/*.tar.gz
+            ${{ matrix.dist }}/dist/*.blockmap
+            ${{ matrix.dist }}/dist/latest*.yml
+
+  macos:
+    name: Build macOS
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: macos
+    steps:
+      - uses: actions/checkout@v7
+      # Releases are signed with the Developer ID certificate in the MACOS_CERTIFICATE_P12 secret (base64 .p12),
+      # which goes into a throwaway keychain for this run only.
+      - name: Import signing certificate
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          [ -n "$MACOS_CERTIFICATE_P12" ] || { echo "::error::The MACOS_CERTIFICATE_P12 secret is not set"; exit 1; }
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          # Both Developer ID intermediates (the original and G2), so the certificate's chain to Apple's root is complete.
+          for ca in DeveloperIDCA DeveloperIDG2CA; do
+            curl -fsSL -o "$RUNNER_TEMP/$ca.cer" "https://www.apple.com/certificateauthority/$ca.cer"
+            security import "$RUNNER_TEMP/$ca.cer" -k "$KEYCHAIN" || true
+          done
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')
+          if [ -z "$IDENTITY" ]; then
+            security find-identity -p codesigning "$KEYCHAIN"
+            echo "::error::No valid Developer ID Application identity in the certificate"
+            exit 1
+          fi
+          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+      - name: Build, sign and notarize
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="$VERSION" ./scripts/build-app.sh
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey.p8" ./scripts/notarize.sh
+          rm "$RUNNER_TEMP/AuthKey.p8"
+          ditto -c -k --keepParent dist/RemoteSSH.app "dist/RemoteSSH-$VERSION-macos.zip"
+      - name: Remove signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: macos/dist/*.zip
+
+  release:
+    needs: [electron, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: RemoteSSH ${{ github.ref_name }}
+          draft: false
+          make_latest: true
+          generate_release_notes: true
+          files: artifacts/*

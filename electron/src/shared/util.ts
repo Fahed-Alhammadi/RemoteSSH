@@ -93,24 +93,3 @@ export function compareVersions(a: string, b: string): number {
   }
   return 0
 }
-
-export interface GitHubRelease {
-  tag_name: string
-  html_url: string
-  draft: boolean
-  prerelease: boolean
-}
-
-/**
- * Each platform is released under its own tag (`macos-v1.2.0`, `windows-v1.2.0`, `linux-v1.2.0`).
- * Returns the newest published release whose tag starts with `prefix`, and its version.
- */
-export function newestRelease<T extends GitHubRelease>(releases: T[], prefix: string): { release: T; version: string } | null {
-  let best: { release: T; version: string } | null = null
-  for (const release of releases) {
-    if (release.draft || release.prerelease || !release.tag_name.startsWith(prefix)) continue
-    const version = release.tag_name.slice(prefix.length)
-    if (!best || compareVersions(version, best.version) > 0) best = { release, version }
-  }
-  return best
-}
