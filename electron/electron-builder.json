@@ -2,10 +2,6 @@
   "appId": "app.remotessh.RemoteSSH",
   "productName": "RemoteSSH",
   "copyright": "Copyright (c) 2026 Fahed Alhammadi",
-  "directories": {
-    "output": "dist",
-    "buildResources": "resources"
-  },
   "files": [
     "out/**/*",
     "package.json",

@@ -113,7 +113,6 @@ final class CurlHandle {
         return curl_easy_perform(raw)
     }
 
-    var responseCode: Int { ccurl_response_code(raw) }
 
     static func describe(_ code: CURLcode) -> String {
         String(cString: curl_easy_strerror(code))

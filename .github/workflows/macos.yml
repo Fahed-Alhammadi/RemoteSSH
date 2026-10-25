@@ -19,5 +19,11 @@ jobs:
         working-directory: macos
     steps:
       - uses: actions/checkout@v7
+      # Reuse compiled dependencies between runs; the key changes when Package.resolved does.
+      - uses: actions/cache@v6
+        with:
+          path: macos/.build
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
+          restore-keys: swiftpm-${{ runner.os }}-
       - run: swift build
       - run: swift test

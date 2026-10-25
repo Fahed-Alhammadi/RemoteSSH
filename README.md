@@ -2,7 +2,7 @@
 
 <h1 align="center">RemoteSSH</h1>
 
-<p align="center">A fast, modern <b>SFTP, FTP and FTPS</b> file transfer client for <b>macOS, Windows and Linux</b>.</p>
+<p align="center">A fast, modern <b>SFTP, FTP and FTPS</b> file transfer client for <b>macOS, Windows and Linux</b>.<br><a href="https://fahed-alhammadi.github.io/RemoteSSH/">fahed-alhammadi.github.io/RemoteSSH</a></p>
 
 <p align="center">
   <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest"><img alt="Download the latest release" src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?label=Download&color=0F766E&style=for-the-badge"></a>

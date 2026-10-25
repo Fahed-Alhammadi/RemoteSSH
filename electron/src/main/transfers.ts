@@ -7,7 +7,7 @@ import { localStat } from './engine/localFS'
 import { ask, CancelledError, type Prompter, type RemoteSession } from './engine/session'
 import type { QueueStore } from './store/settingsStore'
 
-export interface TransferHost {
+interface TransferHost {
   settings(): AppSettings
   site(id: string): Site | null
   connectSession(site: Site): Promise<RemoteSession>

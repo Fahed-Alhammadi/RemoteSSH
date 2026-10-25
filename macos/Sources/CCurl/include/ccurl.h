@@ -20,7 +20,6 @@ CURLcode ccurl_set_header(CURL *h, ccurl_data_cb cb, void *userdata);
 CURLcode ccurl_set_xferinfo(CURL *h, ccurl_xferinfo_cb cb, void *userdata);
 CURLcode ccurl_set_debug(CURL *h, ccurl_debug_cb cb, void *userdata);
 
-long ccurl_response_code(CURL *h);
 curl_off_t ccurl_size_download(CURL *h);
 
 #endif

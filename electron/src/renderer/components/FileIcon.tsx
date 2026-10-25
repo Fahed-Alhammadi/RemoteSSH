@@ -53,7 +53,7 @@ const groups: Record<keyof typeof kinds, string> = {
 for (const [kind, exts] of Object.entries(groups)) for (const ext of exts.split(' ')) byExtension[ext] = kind
 
 /** Icon + tint for a file name (pure lookup, cheap enough for every row). */
-export function fileKind(name: string, isDirectory: boolean, isLink: boolean): Kind {
+function fileKind(name: string, isDirectory: boolean, isLink: boolean): Kind {
   if (isDirectory) return { icon: isLink ? FolderSymlink : /^[A-Z]:\\$/.test(name) ? HardDrive : Folder, color: 'var(--c-folder)' }
   const lower = name.toLowerCase()
   if (lower.startsWith('id_') || lower === 'authorized_keys' || lower === 'known_hosts') return kinds.key

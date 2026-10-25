@@ -32,6 +32,7 @@ struct SettingsView: View {
 
             Form {
                 Toggle("Show hidden files", isOn: $model.settings.showHiddenFiles)
+                Toggle("Highlight differences between panes", isOn: $model.settings.showDirectoryComparison)
             }
             .tabItem { Label("Interface", systemImage: "macwindow") }
 

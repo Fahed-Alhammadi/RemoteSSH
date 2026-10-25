@@ -17,7 +17,7 @@ export interface Prompter {
   ask(request: PromptRequest): Promise<unknown>
 }
 
-export type PromptAnswer<K extends PromptRequest['kind']> = K extends 'hostKey' | 'certificate'
+type PromptAnswer<K extends PromptRequest['kind']> = K extends 'hostKey' | 'certificate'
   ? TrustAnswer
   : K extends 'confirm'
     ? boolean

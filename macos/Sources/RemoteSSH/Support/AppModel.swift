@@ -57,6 +57,7 @@ final class AppModel {
 
     init() {
         sites = siteStore.load()
+        compareDirectories = settings.showDirectoryComparison
         refreshLocal()
     }
 

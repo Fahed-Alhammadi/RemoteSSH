@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import path from 'node:path'
 import { readJSON, writeJSON } from './jsonFile'
 
-export type HostKeyStatus = 'trusted' | 'unknown' | 'changed'
+type HostKeyStatus = 'trusted' | 'unknown' | 'changed'
 
 /** Trusted SSH host keys: `[host]:port` → OpenSSH public key line ("type base64"). */
 export class KnownHostsStore {

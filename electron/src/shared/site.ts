@@ -50,7 +50,7 @@ export function displayAddress(site: Site): string {
 
 export class InputError extends Error {}
 
-export interface QuickConnectInput {
+interface QuickConnectInput {
   site: Site
   password: string
   initialPath: string | null

@@ -31,5 +31,4 @@ CURLcode ccurl_set_debug(CURL *h, ccurl_debug_cb cb, void *userdata) {
     return rc ? rc : curl_easy_setopt(h, CURLOPT_VERBOSE, 1L);
 }
 
-long ccurl_response_code(CURL *h) { long c = 0; curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &c); return c; }
 curl_off_t ccurl_size_download(CURL *h) { curl_off_t s = 0; curl_easy_getinfo(h, CURLINFO_SIZE_DOWNLOAD_T, &s); return s; }

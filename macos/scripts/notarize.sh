@@ -28,6 +28,12 @@ if [ "$STATUS" != "Accepted" ]; then
   exit 1
 fi
 
-xcrun stapler staple "$APP"
+# Apple's ticket servers occasionally drop the connection, so stapling gets a few tries.
+for attempt in 1 2 3 4; do
+  xcrun stapler staple "$APP" && break
+  [ "$attempt" = 4 ] && exit 1
+  echo "Stapling failed (attempt $attempt), retrying in 20 s…" >&2
+  sleep 20
+done
 spctl --assess --type execute -vv "$APP"
 echo "Notarized $APP"
