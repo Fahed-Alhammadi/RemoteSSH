@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// "Ink & Teal" design tokens. Mirrors the CSS variables in desktop/src/renderer/styles.css.
+/// "Ink & Teal" design tokens. Mirrors the CSS variables in electron/src/renderer/styles.css.
 enum Theme {
     /// Brand tint: teal-700 in light mode (white text 5.5:1), teal-400 in dark mode.
     static let accent = adaptive(light: 0x0F766E, dark: 0x2DD4BF)

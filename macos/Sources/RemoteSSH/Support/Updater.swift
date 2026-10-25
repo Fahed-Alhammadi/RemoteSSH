@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import RemoteSSHCore
+import Security
 
 /// Checks GitHub for a newer release, then downloads, verifies and swaps in the new app and relaunches.
 @MainActor
@@ -76,7 +77,8 @@ final class Updater {
         return nil
     }
 
-    /// Downloads and unpacks the zip, then checks the checksum, bundle ID and code signature.
+    /// Downloads and unpacks the zip, then checks the checksum, bundle ID and code signature. When this app is
+    /// signed with a Developer ID, the update must be signed by the same team.
     private func fetch(_ url: URL, sha256: String?) async throws -> URL {
         let (zip, response) = try await URLSession.shared.download(from: url)
         defer { try? FileManager.default.removeItem(at: zip) }
@@ -96,6 +98,9 @@ final class Updater {
                 throw UpdateError("The download does not contain RemoteSSH.")
             }
             try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", newApp.path])
+            if let team = teamIdentifier(of: Bundle.main.bundleURL), !isSigned(newApp, byTeam: team) {
+                throw UpdateError("The download is not signed by the RemoteSSH developer.")
+            }
             return newApp
         } catch {
             try? FileManager.default.removeItem(at: dir)
@@ -131,6 +136,27 @@ final class Updater {
         guard process.terminationStatus == 0 else {
             throw UpdateError("Could not verify the downloaded app (\((tool as NSString).lastPathComponent) failed).")
         }
+    }
+
+    /// The Team ID in an app's signature, or nil for ad-hoc and unsigned builds.
+    private func teamIdentifier(of app: URL) -> String? {
+        var code: SecStaticCode?
+        var info: CFDictionary?
+        guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code,
+              SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess
+        else { return nil }
+        return (info as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
+    }
+
+    /// Whether `app` has a valid signature from an Apple-issued certificate of `team`.
+    private func isSigned(_ app: URL, byTeam team: String) -> Bool {
+        var code: SecStaticCode?
+        var requirement: SecRequirement?
+        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\"" as CFString
+        guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code,
+              SecRequirementCreateWithString(text, [], &requirement) == errSecSuccess else { return false }
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
+        return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
     }
 
     private func ask(_ title: String, _ message: String, buttons: [String]) -> Bool {

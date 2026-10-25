@@ -12,9 +12,9 @@ fi
 
 swift build -c release --product RemoteSSH
 BIN=$(swift build -c release --show-bin-path)/RemoteSSH
-# VERSION may be passed in (the release workflow uses the tag); otherwise the nearest tag is used.
-VERSION=${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || echo "1.0.0")}
-VERSION=${VERSION#v}
+# VERSION may be passed in (the release workflow uses the tag); otherwise the nearest macos-v* tag is used.
+VERSION=${VERSION:-$(git describe --tags --abbrev=0 --match 'macos-v*' 2>/dev/null || echo "1.0.0")}
+VERSION=${VERSION#macos-}; VERSION=${VERSION#v}
 
 APP=dist/RemoteSSH.app
 rm -rf "$APP"
@@ -52,6 +52,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc signature so Gatekeeper/Keychain treat the bundle consistently on this Mac.
-codesign --force --deep --sign - "$APP"
+# SIGN_IDENTITY (a "Developer ID Application: …" certificate in the keychain) signs for distribution, with the
+# hardened runtime and a secure timestamp that notarization requires. Without it, an ad-hoc signature keeps
+# Gatekeeper/Keychain consistent on this Mac.
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+else
+  codesign --force --deep --sign - "$APP"
+fi
 echo "Built $APP"

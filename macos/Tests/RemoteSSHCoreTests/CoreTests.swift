@@ -151,13 +151,17 @@ import Testing
 
     @Test func testParse() throws {
         let json = """
-        {"tag_name":"v1.4.0","html_url":"https://github.com/o/r/releases/tag/v1.4.0","assets":[
-          {"name":"RemoteSSH-1.4.0-win-x64.exe","browser_download_url":"https://example.com/a.exe"},
-          {"name":"RemoteSSH-1.4.0-macos.zip","browser_download_url":"https://example.com/m.zip","digest":"sha256:ABCDEF"}]}
+        [{"tag_name":"windows-v2.0.0","html_url":"https://github.com/o/r/releases/tag/windows-v2.0.0","draft":false,"prerelease":false,"assets":[
+           {"name":"RemoteSSH-2.0.0-win-x64.exe","browser_download_url":"https://example.com/a.exe"}]},
+         {"tag_name":"macos-v1.5.0","html_url":"https://github.com/o/r/releases/tag/macos-v1.5.0","draft":true,"prerelease":false,"assets":[]},
+         {"tag_name":"macos-v1.4.10","html_url":"https://github.com/o/r/releases/tag/macos-v1.4.10","draft":false,"prerelease":false,"assets":[
+           {"name":"RemoteSSH-1.4.10-macos.zip","browser_download_url":"https://example.com/m.zip","digest":"sha256:ABCDEF"}]},
+         {"tag_name":"macos-v1.4.9","html_url":"https://github.com/o/r/releases/tag/macos-v1.4.9","draft":false,"prerelease":false,"assets":[]}]
         """
-        let info = try ReleaseCheck.parse(Data(json.utf8))
-        #expect(info.version == "1.4.0")
+        let info = try #require(try ReleaseCheck.parse(Data(json.utf8)))
+        #expect(info.version == "1.4.10")
         #expect(info.downloadURL?.lastPathComponent == "m.zip")
         #expect(info.sha256 == "abcdef")
+        #expect(try ReleaseCheck.parse(Data("[]".utf8)) == nil)
     }
 }

@@ -1,0 +1,47 @@
+{
+  "name": "remotessh",
+  "productName": "RemoteSSH",
+  "version": "1.0.0",
+  "description": "SFTP, FTP and FTPS file transfer client",
+  "license": "MIT",
+  "author": "Fahed Alhammadi",
+  "homepage": "https://github.com/Fahed-Alhammadi/RemoteSSH",
+  "private": true,
+  "main": "out/main.js",
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json && node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dist:linux": "npm run build && electron-builder --linux --config ../linux/electron-builder.json",
+    "dist:win": "npm run build && electron-builder --win --config ../windows/electron-builder.json",
+    "test:live": "../scripts/test-servers.sh npx vitest run"
+  },
+  "dependencies": {
+    "basic-ftp": "^6.2.3",
+    "electron-updater": "^6.8.9",
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ssh2": "^1.15.6",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "lucide-react": "^1.57.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.4"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "cpu-features": false,
+    "ssh2": false,
+    "electron-winstaller": false
+  }
+}

@@ -4,7 +4,18 @@ macos/.build/
 macos/.swiftpm/
 macos/dist/
 *.xcodeproj
-# Windows / Linux app (Electron)
-desktop/node_modules/
-desktop/out/
-desktop/release/
+# Windows / Linux app (shared Electron code, packaged by windows/ and linux/)
+electron/node_modules/
+electron/out/
+electron/dist/
+windows/dist/
+linux/dist/
+# Local Claude Code notes (not published)
+CLAUDE.md
+.claude/
+# Signing keys and certificates (never commit)
+keys/
+*.p8
+*.p12
+*.cer
+*.mobileprovision

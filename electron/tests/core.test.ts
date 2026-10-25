@@ -10,7 +10,7 @@ import { SiteStore, type SecretCipher } from '../src/main/store/siteStore'
 import { uniqueLocalName } from '../src/main/transfers'
 import { displayAddress, effectivePort, makeSite, parseQuickConnect } from '../src/shared/site'
 import type { TransferItem } from '../src/shared/types'
-import { compareVersions, Permissions, RemotePath } from '../src/shared/util'
+import { compareVersions, newestRelease, Permissions, RemotePath } from '../src/shared/util'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'remotessh-test-'))
 
@@ -175,5 +175,28 @@ describe('compareVersions', () => {
     expect(compareVersions('1.0.0', 'v1.0.0')).toBe(0)
     expect(compareVersions('1.0', '1.0.1')).toBe(-1)
     expect(compareVersions('2.0.0-beta.1', '1.9.9')).toBe(1)
+  })
+})
+
+describe('newestRelease', () => {
+  const rel = (tag_name: string, extra: { draft?: boolean; prerelease?: boolean } = {}) => ({
+    tag_name,
+    html_url: `https://github.com/o/r/releases/tag/${tag_name}`,
+    draft: false,
+    prerelease: false,
+    ...extra,
+  })
+
+  it('picks the highest published version for one platform prefix', () => {
+    const releases = [
+      rel('macos-v3.0.0'),
+      rel('windows-v1.2.10'),
+      rel('windows-v1.3.0', { draft: true }),
+      rel('windows-v1.4.0', { prerelease: true }),
+      rel('windows-v1.2.9'),
+      rel('v9.0.0'),
+    ]
+    expect(newestRelease(releases, 'windows-v')).toMatchObject({ version: '1.2.10' })
+    expect(newestRelease(releases, 'linux-v')).toBeNull()
   })
 })

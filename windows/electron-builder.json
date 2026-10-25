@@ -1,0 +1,34 @@
+{
+  "extends": "./electron-builder.json",
+  "directories": {
+    "output": "../windows/dist"
+  },
+  "win": {
+    "icon": "../assets/icon.png",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64",
+          "arm64"
+        ]
+      },
+      {
+        "target": "portable",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+  },
+  "portable": {
+    "artifactName": "${productName}-${version}-portable.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "deleteAppDataOnUninstall": false
+  }
+}

@@ -4,12 +4,13 @@
 
 <p align="center">A fast, modern <b>SFTP, FTP and FTPS</b> file transfer client for <b>macOS, Windows and Linux</b>.</p>
 
-RemoteSSH has two apps that share one feature set and one site file format:
+RemoteSSH has two code bases that share one feature set and one site file format. Each platform is built and released on its own, with its own version:
 
-| Platform | App | Folder |
-| --- | --- | --- |
-| macOS 14+ | Native SwiftUI app | [`macos/`](macos) |
-| Windows 10+ (x64, arm64) and Linux (x64, arm64) | Electron + React app | [`desktop/`](desktop) |
+| Platform | App | Folder | Release tag |
+| --- | --- | --- | --- |
+| macOS 14+ | Native SwiftUI app | [`macos/`](macos) | `macos-v1.2.3` |
+| Windows 10+ (x64, arm64) | Electron + React app from [`electron/`](electron), packaged by [`windows/`](windows) | [`windows/`](windows) | `windows-v1.2.3` |
+| Linux (x64, arm64) | Electron + React app from [`electron/`](electron), packaged by [`linux/`](linux) | [`linux/`](linux) | `linux-v1.2.3` |
 
 ## Features
 
@@ -25,31 +26,28 @@ RemoteSSH has two apps that share one feature set and one site file format:
 
 ## Download
 
-Prebuilt packages are attached to each [GitHub release](../../releases):
+Prebuilt packages are attached to the [GitHub releases](../../releases). Each release is for one platform:
 
 - **Windows:** `RemoteSSH-x.y.z-win-x64.exe` (installer), `-win-arm64.exe`, or `RemoteSSH-x.y.z-portable.exe`.
 - **Linux:** `.AppImage`, `.deb` (Debian/Ubuntu) or `.tar.gz`, for x64 and arm64.
 - **macOS:** `RemoteSSH-x.y.z-macos.zip`.
 
-The builds are not code-signed, so the system will warn you the first time you open them:
-
-- **Windows:** SmartScreen shows a warning. Click *More info → Run anyway*.
-- **macOS:** right-click the app and choose *Open*.
+The macOS app is signed with a Developer ID and notarized by Apple, so it opens without a warning. The Windows builds are not code-signed: SmartScreen shows a warning the first time, so click *More info → Run anyway*.
 
 ## Build from source
 
-### Windows and Linux (`desktop/`)
+### Windows and Linux (`electron/`)
 
-You need Node.js 22 or later.
+You need Node.js 22 or later. The shared Electron app lives in `electron/`; `windows/` and `linux/` hold each platform's packaging settings (`electron-builder.json`) and receive its packages in `dist/`.
 
 ```bash
-cd desktop
+cd electron
 npm ci
 npm start              # build and run
 npm test               # unit tests
 npm run test:live      # + live FTP/FTPS/SFTP tests (Linux/macOS: needs sshd, python3, openssl)
-npm run dist:linux     # → release/*.AppImage, *.deb, *.tar.gz
-npm run dist:win       # → release/*.exe (works from Windows, macOS or Linux)
+npm run dist:linux     # → ../linux/dist/*.AppImage, *.deb, *.tar.gz
+npm run dist:win       # → ../windows/dist/*.exe (works from Windows, macOS or Linux)
 ```
 
 ### macOS (`macos/`)
@@ -58,8 +56,15 @@ You need macOS 14 or later with Xcode or the Xcode Command Line Tools.
 
 ```bash
 cd macos
-./scripts/build-app.sh          # → dist/RemoteSSH.app
+./scripts/build-app.sh          # → dist/RemoteSSH.app (ad-hoc signed)
 ./scripts/integration-test.sh   # unit tests + live FTP/FTPES/SFTP tests against throwaway local servers
+```
+
+To sign and notarize a build yourself (needs a Developer ID Application certificate and an App Store Connect API key):
+
+```bash
+SIGN_IDENTITY="Developer ID Application" ./scripts/build-app.sh
+APPLE_API_KEY_PATH=/path/to/AuthKey_XXXXXXXXXX.p8 APPLE_API_ISSUER_ID=<issuer-id> ./scripts/notarize.sh
 ```
 
 ## Where data is stored
@@ -72,7 +77,25 @@ cd macos
 
 ## Releasing
 
-Push a tag such as `v1.0.0`. GitHub Actions ([`.github/workflows/release.yml`](.github/workflows/release.yml)) builds the Windows, Linux and macOS packages and attaches them to a draft release.
+Each platform has its own workflow and tag. Pushing the tag builds that platform's packages, sets the version from the tag and attaches them to a draft release:
+
+| Tag | Workflow |
+| --- | --- |
+| `macos-v1.2.3` | [`.github/workflows/macos.yml`](.github/workflows/macos.yml) |
+| `windows-v1.2.3` | [`.github/workflows/windows.yml`](.github/workflows/windows.yml) |
+| `linux-v1.2.3` | [`.github/workflows/linux.yml`](.github/workflows/linux.yml) |
+
+Each app only updates itself from releases with its own tag prefix. A signed Mac app only accepts an update signed by the same Developer ID team.
+
+macOS releases are signed and notarized, which needs these repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+| --- | --- |
+| `MACOS_CERTIFICATE_P12` | The *Developer ID Application* certificate exported from Keychain Access as `.p12`, base64-encoded (`base64 -i cert.p12 \| pbcopy`) |
+| `MACOS_CERTIFICATE_PASSWORD` | The password set when exporting the `.p12` |
+| `APPLE_API_KEY_P8` | The full text of the App Store Connect API key file (`AuthKey_XXXXXXXXXX.p8`) |
+| `APPLE_API_KEY_ID` | The key's Key ID |
+| `APPLE_API_ISSUER_ID` | The Issuer ID shown above the list of keys | The same workflows also build and test their platform on every push and pull request that touches its code.
 
 ## License
 

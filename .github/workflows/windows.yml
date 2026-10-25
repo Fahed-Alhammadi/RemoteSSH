@@ -1,0 +1,63 @@
+name: Windows
+
+# Builds and tests the Electron app on Windows when its code changes.
+# Push a tag like windows-v1.2.0 to also build the installers and attach them to a draft release.
+on:
+  push:
+    branches: [main]
+    tags: ['windows-v*']
+    paths: ['electron/**', 'windows/**', 'assets/**', '.github/workflows/windows.yml']
+  pull_request:
+    paths: ['electron/**', 'windows/**', 'assets/**', '.github/workflows/windows.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: electron
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+      - run: npm ci
+      # The app version (and the update metadata) come from the tag, e.g. windows-v1.2.0 → 1.2.0.
+      - if: startsWith(github.ref, 'refs/tags/')
+        run: npm version "${GITHUB_REF_NAME#windows-v}" --no-git-tag-version --allow-same-version
+      - run: npm run build
+      - run: npm test
+      - if: startsWith(github.ref, 'refs/tags/')
+        run: npm run dist:win -- --publish never
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: |
+            windows/dist/*.exe
+            windows/dist/*.blockmap
+            windows/dist/latest*.yml
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows
+          path: artifacts
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: RemoteSSH for Windows ${{ github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          files: artifacts/*

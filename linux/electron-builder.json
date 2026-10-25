@@ -1,0 +1,51 @@
+{
+  "extends": "./electron-builder.json",
+  "directories": {
+    "output": "../linux/dist"
+  },
+  "linux": {
+    "icon": "../assets/icon.png",
+    "category": "Network",
+    "synopsis": "SFTP, FTP and FTPS file transfer client",
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": [
+          "x64",
+          "arm64"
+        ]
+      },
+      {
+        "target": "deb",
+        "arch": [
+          "x64",
+          "arm64"
+        ]
+      },
+      {
+        "target": "tar.gz",
+        "arch": [
+          "x64",
+          "arm64"
+        ]
+      }
+    ],
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "maintainer": "Fahed Alhammadi <Fahed-Alhammadi@users.noreply.github.com>"
+  },
+  "deb": {
+    "depends": [
+      "libgtk-3-0",
+      "libnotify4",
+      "libnss3",
+      "libxss1",
+      "libxtst6",
+      "xdg-utils",
+      "libatspi2.0-0",
+      "libuuid1",
+      "libsecret-1-0",
+      "libgbm1",
+      "libasound2 | libasound2t64"
+    ]
+  }
+}

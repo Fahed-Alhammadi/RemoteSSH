@@ -1,0 +1,33 @@
+{
+  "appId": "app.remotessh.RemoteSSH",
+  "productName": "RemoteSSH",
+  "copyright": "Copyright © Fahed Alhammadi",
+  "directories": {
+    "output": "dist",
+    "buildResources": "resources"
+  },
+  "files": [
+    "out/**/*",
+    "package.json",
+    "!node_modules/cpu-features/**",
+    "!node_modules/buildcheck/**",
+    "!node_modules/nan/**"
+  ],
+  "asar": true,
+  "npmRebuild": false,
+  "fileAssociations": [
+    {
+      "ext": "remotessh",
+      "name": "RemoteSSH sites",
+      "description": "RemoteSSH site list"
+    }
+  ],
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "Fahed-Alhammadi",
+      "repo": "RemoteSSH",
+      "releaseType": "release"
+    }
+  ]
+}
