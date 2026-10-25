@@ -1,7 +1,7 @@
 name: Linux
 
 # Builds and tests the Electron app on Linux (including the live FTP/FTPS/SFTP tests) when its code changes.
-# Push a tag like linux-v1.2.0 to also build the packages and attach them to a draft release.
+# Push a tag like linux-v1.2.0 to also build the packages and publish them as a GitHub release.
 on:
   push:
     branches: [main]
@@ -61,6 +61,6 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           name: RemoteSSH for Linux ${{ github.ref_name }}
-          draft: true
+          draft: false
           generate_release_notes: true
           files: artifacts/*

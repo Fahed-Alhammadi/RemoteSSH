@@ -77,7 +77,7 @@ APPLE_API_KEY_PATH=/path/to/AuthKey_XXXXXXXXXX.p8 APPLE_API_ISSUER_ID=<issuer-id
 
 ## Releasing
 
-Each platform has its own workflow and tag. Pushing the tag builds that platform's packages, sets the version from the tag and attaches them to a draft release:
+Each platform has its own workflow and tag. Pushing the tag builds that platform's packages, sets the version from the tag and publishes them as a GitHub release, so the apps can update right away:
 
 | Tag | Workflow |
 | --- | --- |
