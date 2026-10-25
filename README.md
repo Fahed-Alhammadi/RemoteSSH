@@ -5,9 +5,9 @@
 <p align="center">A fast, modern <b>SFTP, FTP and FTPS</b> file transfer client for <b>macOS, Windows and Linux</b>.</p>
 
 <p align="center">
-  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases?q=macos-v&expanded=true"><img alt="Download for macOS" src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?filter=macOS%20%2A&display_name=release&label=Download&color=0F766E&style=for-the-badge"></a>
-  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases?q=windows-v&expanded=true"><img alt="Download for Windows" src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?filter=Windows%20%2A&display_name=release&label=Download&color=0F766E&style=for-the-badge"></a>
-  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases?q=linux-v&expanded=true"><img alt="Download for Linux" src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?filter=Linux%20%2A&display_name=release&label=Download&color=0F766E&style=for-the-badge"></a>
+  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases?q=macOS&expanded=true"><img alt="Download for macOS" src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?filter=macOS%20%2A&display_name=release&label=Download&color=0F766E&style=for-the-badge"></a>
+  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases?q=Windows&expanded=true"><img alt="Download for Windows" src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?filter=Windows%20%2A&display_name=release&label=Download&color=0F766E&style=for-the-badge"></a>
+  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases?q=Linux&expanded=true"><img alt="Download for Linux" src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?filter=Linux%20%2A&display_name=release&label=Download&color=0F766E&style=for-the-badge"></a>
 </p>
 
 RemoteSSH has two code bases that share one feature set and one site file format. Each platform is built and released on its own, with its own version:
