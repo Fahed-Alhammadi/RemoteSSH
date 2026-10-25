@@ -64,13 +64,6 @@ cd macos
 ./scripts/integration-test.sh   # unit tests + live FTP/FTPES/SFTP tests against throwaway local servers
 ```
 
-To sign and notarize a build yourself (needs a Developer ID Application certificate and an App Store Connect API key):
-
-```bash
-SIGN_IDENTITY="Developer ID Application" ./scripts/build-app.sh
-APPLE_API_KEY_PATH=/path/to/AuthKey_XXXXXXXXXX.p8 APPLE_API_ISSUER_ID=<issuer-id> ./scripts/notarize.sh
-```
-
 ## Where data is stored
 
 | | Sites, known hosts, queue, settings | Passwords |
@@ -78,12 +71,6 @@ APPLE_API_KEY_PATH=/path/to/AuthKey_XXXXXXXXXX.p8 APPLE_API_ISSUER_ID=<issuer-id
 | macOS | `~/Library/Application Support/RemoteSSH/` | Keychain (service `RemoteSSH`) |
 | Windows | `%APPDATA%\RemoteSSH\` | `secrets.json`, encrypted with DPAPI |
 | Linux | `~/.config/RemoteSSH/` | `secrets.json`, encrypted using the Secret Service or KWallet |
-
-## Releasing
-
-Push a tag such as `v1.2.3`. [`.github/workflows/release.yml`](.github/workflows/release.yml) builds the Windows, Linux and macOS packages, sets the version from the tag and publishes one GitHub release with all of them, so the apps can update right away. A signed Mac app only accepts an update signed by the same Developer ID team.
-
-Each platform also has its own build-and-test workflow ([`macos.yml`](.github/workflows/macos.yml), [`windows.yml`](.github/workflows/windows.yml), [`linux.yml`](.github/workflows/linux.yml)) that runs on every push and pull request that touches its code.
 
 ## License
 
