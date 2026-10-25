@@ -87,9 +87,12 @@ jobs:
         with:
           name: macos
           path: artifacts
+      # Releases are named "macOS 1.2.0"; the README's download badges show that name.
+      - id: version
+        run: echo "version=${GITHUB_REF_NAME#macos-v}" >> "$GITHUB_OUTPUT"
       - uses: softprops/action-gh-release@v3
         with:
-          name: RemoteSSH for macOS ${{ github.ref_name }}
+          name: macOS ${{ steps.version.outputs.version }}
           draft: false
           generate_release_notes: true
           files: artifacts/*

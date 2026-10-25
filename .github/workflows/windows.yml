@@ -55,9 +55,12 @@ jobs:
         with:
           name: windows
           path: artifacts
+      # Releases are named "Windows 1.2.0"; the README's download badges show that name.
+      - id: version
+        run: echo "version=${GITHUB_REF_NAME#windows-v}" >> "$GITHUB_OUTPUT"
       - uses: softprops/action-gh-release@v3
         with:
-          name: RemoteSSH for Windows ${{ github.ref_name }}
+          name: Windows ${{ steps.version.outputs.version }}
           draft: false
           generate_release_notes: true
           files: artifacts/*
