@@ -85,17 +85,7 @@ Each platform has its own workflow and tag. Pushing the tag builds that platform
 | `windows-v1.2.3` | [`.github/workflows/windows.yml`](.github/workflows/windows.yml) |
 | `linux-v1.2.3` | [`.github/workflows/linux.yml`](.github/workflows/linux.yml) |
 
-Each app only updates itself from releases with its own tag prefix. A signed Mac app only accepts an update signed by the same Developer ID team.
-
-macOS releases are signed and notarized, which needs these repository secrets (Settings → Secrets and variables → Actions):
-
-| Secret | Value |
-| --- | --- |
-| `MACOS_CERTIFICATE_P12` | The *Developer ID Application* certificate exported from Keychain Access as `.p12`, base64-encoded (`base64 -i cert.p12 \| pbcopy`) |
-| `MACOS_CERTIFICATE_PASSWORD` | The password set when exporting the `.p12` |
-| `APPLE_API_KEY_P8` | The full text of the App Store Connect API key file (`AuthKey_XXXXXXXXXX.p8`) |
-| `APPLE_API_KEY_ID` | The key's Key ID |
-| `APPLE_API_ISSUER_ID` | The Issuer ID shown above the list of keys | The same workflows also build and test their platform on every push and pull request that touches its code.
+Each app only updates itself from releases with its own tag prefix. A signed Mac app only accepts an update signed by the same Developer ID team. The same workflows also build and test their platform on every push and pull request that touches its code.
 
 ## License
 
