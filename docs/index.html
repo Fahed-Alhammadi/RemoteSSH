@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RemoteSSH: free SFTP, FTP and FTPS client for macOS, Windows and Linux</title>
+  <meta name="description" content="RemoteSSH is a free, open-source file transfer client with two panes, a transfer queue and a site manager. SFTP, FTP and FTPS on macOS, Windows and Linux.">
+  <meta name="theme-color" content="#F5F8F8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#11131A" media="(prefers-color-scheme: dark)">
+  <meta property="og:title" content="RemoteSSH">
+  <meta property="og:description" content="Free, open-source SFTP, FTP and FTPS client for macOS, Windows and Linux.">
+  <meta property="og:image" content="images/app-light.webp">
+  <link rel="icon" href="images/favicon-64.png" type="image/png">
+  <link rel="apple-touch-icon" href="images/icon-256.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="#top" aria-label="RemoteSSH home">
+        <img src="images/icon-256.png" alt="" width="32" height="32">
+        <span>RemoteSSH</span>
+      </a>
+      <nav aria-label="Main">
+        <a href="#features">Features</a>
+        <a href="#security">Security</a>
+        <a href="#download">Download</a>
+        <a href="https://github.com/Fahed-Alhammadi/RemoteSSH">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="wrap">
+        <h1>Move files between your computer and your servers.</h1>
+        <p class="lede">RemoteSSH is a free, open-source file transfer client for SFTP, FTP and FTPS. Two panes side by side, one transfer queue, and nothing to sign up for.</p>
+        <div class="cta-row">
+          <a class="button primary" id="hero-download" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">Download</a>
+          <a class="button" href="#download">All platforms</a>
+          <p class="release-note" id="release-note">For macOS 14+, Windows 10+ and Linux. MIT licensed.</p>
+        </div>
+
+        <div class="console" aria-label="Example connection">
+          <div class="console-bar">
+            <span class="console-protocol" aria-hidden="true"></span>
+            <code class="console-url"><span id="typed">sftp://deploy@example.com/var/www</span><span class="caret" aria-hidden="true"></span></code>
+            <span class="console-connect" id="connect-chip">Connect</span>
+          </div>
+          <ol class="console-log" id="log">
+            <li data-kind="status">Connecting to example.com:22…</li>
+            <li data-kind="status">Host key verified, SHA256:xU3q…8fK0</li>
+            <li data-kind="ok">Authenticated as deploy with key file</li>
+            <li data-kind="ok">Listing /var/www: 24 items</li>
+          </ol>
+        </div>
+
+        <figure class="shot hero-shot">
+          <picture>
+            <source srcset="images/app-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="images/app-light.webp" width="2560" height="1600" alt="RemoteSSH connected to an FTP server: connection log at the top, local project folder on the left, remote public_html folder on the right with changed files highlighted, and the transfer queue at the bottom.">
+          </picture>
+        </figure>
+      </div>
+    </section>
+
+    <section class="protocols" aria-labelledby="protocols-title">
+      <div class="wrap split">
+        <div class="split-intro">
+          <h2 id="protocols-title">The protocols your hosts actually use</h2>
+          <p>Paste an address like <code>sftp://user@host</code> into Quickconnect, or save the server in the Site Manager with its own login, folders and settings.</p>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th scope="col">Protocol</th><th scope="col">Default port</th><th scope="col">Encryption</th><th scope="col">Sign in with</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">SFTP</th><td>22</td><td>Always (SSH)</td><td>Password, Ed25519 or RSA key, passphrase-protected keys</td></tr>
+              <tr><th scope="row">FTPS explicit</th><td>21</td><td>TLS after connecting</td><td>Password, anonymous</td></tr>
+              <tr><th scope="row">FTPS implicit</th><td>990</td><td>TLS from the start</td><td>Password, anonymous</td></tr>
+              <tr><th scope="row">FTP</th><td>21</td><td>None, or TLS if the server offers it</td><td>Password, anonymous</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="features" id="features" aria-labelledby="features-title">
+      <div class="wrap">
+        <h2 id="features-title">Everything in one window</h2>
+        <div class="feature-groups">
+          <div class="feature-group">
+            <h3>Connect</h3>
+            <ul>
+              <li><strong>Quickconnect bar</strong> for one-off servers: type the address, press Connect.</li>
+              <li><strong>Site Manager</strong> with folders, logon types (normal, anonymous, ask for password, key file) and a default local and remote folder per site.</li>
+              <li><strong>Import and export</strong> your sites as a <code>.remotessh</code> file. The same file opens on every platform, with passwords only if you choose.</li>
+            </ul>
+          </div>
+          <div class="feature-group">
+            <h3>Browse</h3>
+            <ul>
+              <li><strong>Local and remote side by side</strong>, with sortable columns, a filter and hidden files.</li>
+              <li><strong>Directory comparison</strong> highlights files that are newer, missing or different on either side.</li>
+              <li><strong>Synchronized browsing</strong> follows you into the same folder on both sides.</li>
+              <li><strong>Edit in place</strong>: open a remote file in your editor and RemoteSSH uploads it again when you save.</li>
+            </ul>
+          </div>
+          <div class="feature-group">
+            <h3>Transfer</h3>
+            <ul>
+              <li><strong>Drag and drop</strong> between the panes or from your file manager.</li>
+              <li><strong>A queue that survives restarts</strong>, with parallel transfers, automatic retries and resume.</li>
+              <li><strong>You decide what happens</strong> when a file already exists: overwrite, skip, resume, rename, or only if newer.</li>
+              <li><strong>Speed limits</strong> for uploads and downloads.</li>
+            </ul>
+          </div>
+          <div class="feature-group">
+            <h3>Keep up to date</h3>
+            <ul>
+              <li><strong>Automatic updates</strong> from GitHub releases: RemoteSSH checks at startup, downloads, installs and relaunches.</li>
+              <li><strong>Native on the Mac</strong>, built with SwiftUI. On Windows and Linux it runs on Electron with the same features.</li>
+              <li><strong>Light and dark</strong>, following your system setting.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="security" id="security" aria-labelledby="security-title">
+      <div class="wrap split reverse">
+        <figure class="shot">
+          <picture>
+            <source srcset="images/certificate-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="images/certificate-light.webp" width="1240" height="760" loading="lazy" alt="The Unknown certificate dialog, showing the host, subject, issuer, validity dates and SHA-256 fingerprint, with Cancel, Trust Once and Always Trust buttons.">
+          </picture>
+        </figure>
+        <div class="split-intro">
+          <h2 id="security-title">It asks before it trusts a server</h2>
+          <ul class="plain">
+            <li>For FTPS, the certificate is checked <em>before</em> your password is sent. If it can't be verified, you see exactly what the server presented and decide.</li>
+            <li>For SFTP, host keys are checked against SHA-256 fingerprints, and you are warned if a server's key ever changes.</li>
+            <li>Saved passwords go to the system keychain: macOS Keychain, Windows DPAPI, or the Secret Service or KWallet on Linux. Without a keyring, RemoteSSH asks each time instead of storing them in plain text.</li>
+            <li>The Mac app is signed with a Developer ID and notarized by Apple, and it only installs updates signed the same way.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="download" id="download" aria-labelledby="download-title">
+      <div class="wrap">
+        <h2 id="download-title">Download</h2>
+        <p class="section-lede" id="download-lede">Every release includes all platforms. Pick the file for your system.</p>
+        <div class="platforms">
+          <article class="platform" data-os="mac">
+            <h3>macOS</h3>
+            <p class="req">macOS 14 Sonoma or later, Apple silicon</p>
+            <ul class="files">
+              <li><a data-asset="-macos\.zip$" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">App (.zip)</a></li>
+            </ul>
+            <p class="note">Unzip and drag RemoteSSH into Applications. Signed and notarized, so it opens without a warning.</p>
+          </article>
+          <article class="platform" data-os="windows">
+            <h3>Windows</h3>
+            <p class="req">Windows 10 or 11</p>
+            <ul class="files">
+              <li><a data-asset="-win-x64\.exe$" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">Installer, x64</a></li>
+              <li><a data-asset="-win-arm64\.exe$" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">Installer, Arm64</a></li>
+              <li><a data-asset="-portable\.exe$" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">Portable, x64</a></li>
+            </ul>
+            <p class="note">The installer updates itself. Windows may show SmartScreen the first time: choose More info, then Run anyway.</p>
+          </article>
+          <article class="platform" data-os="linux">
+            <h3>Linux</h3>
+            <p class="req">x64 and Arm64</p>
+            <ul class="files">
+              <li><a data-asset="-linux-x86_64\.AppImage$" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">AppImage, x64</a></li>
+              <li><a data-asset="-linux-amd64\.deb$" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">Debian/Ubuntu (.deb), x64</a></li>
+              <li><a data-asset="-linux-x64\.tar\.gz$" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">Archive (.tar.gz), x64</a></li>
+              <li><a data-asset="-linux-arm64\.AppImage$" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">AppImage, Arm64</a></li>
+              <li><a data-asset="-linux-arm64\.deb$" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">Debian/Ubuntu (.deb), Arm64</a></li>
+              <li><a data-asset="-linux-arm64\.tar\.gz$" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">Archive (.tar.gz), Arm64</a></li>
+            </ul>
+            <p class="note">The AppImage and .deb update themselves. The archive shows you when a new version is out.</p>
+          </article>
+        </div>
+        <p class="older">Looking for an older version or the release notes? See <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases">all releases on GitHub</a>.</p>
+      </div>
+    </section>
+
+    <section class="source" aria-labelledby="source-title">
+      <div class="wrap split">
+        <div class="split-intro">
+          <h2 id="source-title">Open source, MIT licensed</h2>
+          <p>The code is on GitHub: a native SwiftUI app for the Mac and an Electron app for Windows and Linux, sharing one feature set and one site file format. Bug reports and pull requests are welcome.</p>
+          <p><a class="button" href="https://github.com/Fahed-Alhammadi/RemoteSSH">View the source on GitHub</a></p>
+        </div>
+        <pre class="code" aria-label="Build from source"><code><span class="c"># Windows and Linux (Node.js 22+)</span>
+cd electron
+npm ci
+npm start
+
+<span class="c"># macOS (Xcode or Command Line Tools)</span>
+cd macos
+./scripts/build-app.sh</code></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-row">
+      <p>RemoteSSH is free software under the <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/blob/main/LICENSE">MIT license</a>, made by Fahed Alhammadi.</p>
+      <p><a href="https://github.com/Fahed-Alhammadi/RemoteSSH/issues">Report a problem</a></p>
+    </div>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
