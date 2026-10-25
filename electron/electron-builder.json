@@ -1,7 +1,7 @@
 {
   "appId": "app.remotessh.RemoteSSH",
   "productName": "RemoteSSH",
-  "copyright": "Copyright © Fahed Alhammadi",
+  "copyright": "Copyright (c) 2026 Fahed Alhammadi",
   "directories": {
     "output": "dist",
     "buildResources": "resources"

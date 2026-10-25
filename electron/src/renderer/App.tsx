@@ -618,6 +618,11 @@ export function App() {
             <h2>RemoteSSH</h2>
             <p>Version {version}</p>
             <p className="muted">SFTP, FTP and FTPS file transfer client.</p>
+            <p className="muted">Copyright (c) 2026 Fahed Alhammadi</p>
+            <p className="about-links">
+              <a href="https://fahed-alhammadi.github.io/RemoteSSH/" target="_blank" rel="noreferrer">Website</a>
+              <a href="https://github.com/Fahed-Alhammadi/RemoteSSH" target="_blank" rel="noreferrer">GitHub</a>
+            </p>
           </div>
         </Modal>
       )}

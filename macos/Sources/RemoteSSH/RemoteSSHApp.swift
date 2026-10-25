@@ -31,6 +31,9 @@ struct RemoteSSHApp: App {
 
     @CommandsBuilder
     private var commands: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About RemoteSSH") { AboutPanel.show() }
+        }
         CommandGroup(after: .appInfo) {
             Button("Check for Updates…", systemImage: "arrow.down.circle") { Task { await Updater.shared.check(manual: true) } }
         }
