@@ -42,6 +42,9 @@ export interface FileEntry {
 export type OverwriteAction =
   | 'ask' | 'overwrite' | 'overwriteIfNewer' | 'overwriteIfDifferentSize' | 'resume' | 'rename' | 'skip'
 
+/** Light, dark, or follow the operating system. */
+export type ThemeMode = 'system' | 'light' | 'dark'
+
 export interface AppSettings {
   maxConcurrentTransfers: number
   defaultOverwriteDownload: OverwriteAction
@@ -55,6 +58,7 @@ export interface AppSettings {
   retryCount: number
   showDirectoryComparison: boolean
   checkForUpdates: boolean
+  theme: ThemeMode
 }
 
 export const defaultSettings: AppSettings = {
@@ -69,6 +73,7 @@ export const defaultSettings: AppSettings = {
   retryCount: 2,
   showDirectoryComparison: true,
   checkForUpdates: true,
+  theme: 'system',
 }
 
 export type TransferDirection = 'download' | 'upload'

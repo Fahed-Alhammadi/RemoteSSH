@@ -160,6 +160,7 @@ describe('stores', () => {
     const s = new SettingsStore(dir)
     expect(s.value.retryCount).toBe(5)
     expect(s.value.maxConcurrentTransfers).toBe(2)
+    expect(s.value.theme).toBe('system')
   })
   it('finds a free local name', () => {
     const dir = tmp()

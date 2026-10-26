@@ -1,33 +1,20 @@
-// RemoteSSH website: the typed Quickconnect hero and download links from the latest GitHub release.
+// RemoteSSH website: the hero handoff and download links from the latest GitHub release.
 const REPO = 'Fahed-Alhammadi/RemoteSSH'
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-// Hero: type the address, then show the connection log line by line (once, on load).
-function playConsole() {
-  const consoleEl = document.querySelector('.console')
-  const typed = document.getElementById('typed')
-  const log = document.getElementById('log')
-  if (!consoleEl || !typed || !log) return
-  const finish = () => {
-    log.classList.remove('typing')
-    consoleEl.classList.add('connected')
-  }
-  if (reduceMotion) return finish()
-
-  const text = typed.textContent
-  const lines = [...log.children]
-  typed.textContent = ''
-  log.classList.add('typing')
-  let i = 0
-  const typeNext = () => {
-    typed.textContent = text.slice(0, ++i)
-    if (i < text.length) return setTimeout(typeNext, 38)
-    lines.forEach((line, n) => setTimeout(() => {
-      line.classList.add('shown')
-      if (n === lines.length - 1) finish()
-    }, 350 + n * 420))
-  }
-  setTimeout(typeNext, 500)
+// Hero: index.html travels from "Your computer" to "Your server" once, then the finished state stays.
+function playHandoff() {
+  const handoff = document.querySelector('.handoff')
+  if (!handoff) return
+  if (reduceMotion) return handoff.classList.add('done')
+  const lane = handoff.querySelector('.lane')
+  const chip = handoff.querySelector('.chip')
+  setTimeout(() => {
+    const padding = parseFloat(getComputedStyle(lane).paddingLeft) * 2
+    handoff.style.setProperty('--travel', `${Math.max(0, lane.clientWidth - chip.offsetWidth - padding)}px`)
+    handoff.classList.add('play')
+    setTimeout(() => handoff.classList.replace('play', 'done'), 1500)
+  }, 700)
 }
 
 function detectOS() {
@@ -88,5 +75,5 @@ async function wireDownloads() {
   }
 }
 
-playConsole()
+playHandoff()
 wireDownloads()

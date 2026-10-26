@@ -18,14 +18,16 @@ RemoteSSH has two code bases that share one feature set and one site file format
 
 ## Features
 
-- **Connect:** a Quickconnect bar (`sftp://user@host:port/path`) and a Site Manager with folders, logon types (anonymous, normal, ask for password, key file) and default folders.
+- **Connect:** type an address such as `sftp://user@host:port/path` and press Connect, or save servers in the Site Manager with folders, logon types (anonymous, normal, ask for password, key file) and default folders. On Windows and Linux, saved sites are listed in a sidebar: one click connects, and the connected site is marked.
 - **Secure storage:** saved passwords go into the system keychain (macOS Keychain, Windows DPAPI, or the Secret Service/KWallet on Linux). If no keyring is available, RemoteSSH asks for the password instead of saving it in plain text.
 - **SFTP:** password or key-file login with Ed25519 and RSA keys (rsa-sha2-256/512), including passphrase-protected keys. Host keys are checked against SHA-256 fingerprints, and you are warned if a key changes.
 - **FTP/FTPS:** explicit or implicit TLS. Before any password is sent, you are asked about certificates that can't be verified.
 - **Browsing:** local and remote panes side by side, with sortable columns, a filter, file-type icons, hidden files, directory comparison, synchronized browsing, and drag & drop between panes and from your file manager.
+- **Workspace:** on Windows and Linux, the activity log, the transfer queue and the terminal share one resizable panel below the panes, with a tab for each; it can be collapsed or, for the terminal, maximized. The Mac app keeps them in native split views.
 - **File operations:** create, rename, delete (recursively), change permissions, and View/Edit (open a remote file locally and upload it again when you save).
-- **SSH terminal:** for SFTP sites, a Terminal tab next to the transfer queue opens a shell on the server, on its own connection, in the folder you're viewing. Open it with Ctrl+` (all platforms), the toolbar, or *Open Terminal Here* on a remote folder. On Windows and Linux, copy and paste are Ctrl+Shift+C / Ctrl+Shift+V.
+- **SSH terminal:** for SFTP sites, the Terminal tab opens a shell on the server, on its own connection, in the folder you're viewing. Open it with Ctrl+` (all platforms), the toolbar, or *Open Terminal Here* on a remote folder. On Windows and Linux, copy and paste are Ctrl+Shift+C / Ctrl+Shift+V.
 - **Transfer queue:** parallel transfers, queued/failed/done tabs, automatic retries, resume, a choice of what to do when a file already exists, and speed limits. The queue is kept across restarts.
+- **Appearance:** light, dark, or follow the system, chosen in Settings.
 - **Automatic updates:** checks GitHub for a new release at startup (or *Check for Updates…* in the menu), then downloads, installs and relaunches. The Windows portable `.exe` and Linux `.tar.gz` builds only open the download page.
 - **Import/export:** `File → Export Sites…` writes a `.remotessh` file and `File → Import from RemoteSSH…` reads one. The same file works on every platform. Passwords are only included if you choose to.
 

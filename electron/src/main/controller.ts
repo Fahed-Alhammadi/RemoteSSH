@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { dialog, shell, type BrowserWindow } from 'electron'
+import { dialog, nativeTheme, shell, type BrowserWindow } from 'electron'
 import type { ConnectResult, InvokeMethod, QueueUpdate } from '../shared/api'
 import { Events } from '../shared/api'
 import { displayAddress, effectivePort, effectiveUser, InputError, parseQuickConnect } from '../shared/site'
@@ -102,6 +102,7 @@ export class Controller implements Prompter {
       getSettings: () => this.settingsStore.value,
       saveSettings: (s: AppSettings) => {
         this.settingsStore.save(s)
+        nativeTheme.themeSource = s.theme
         this.transfers.resume()
       },
       chooseKeyFile: () => this.choose('openFile', 'Choose key file', path.join(os.homedir(), '.ssh')),

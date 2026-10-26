@@ -19,6 +19,7 @@ struct RemoteSSHApp: App {
                 .frame(minWidth: 960, minHeight: 640)
                 .onAppear {
                     NSApplication.shared.activate(ignoringOtherApps: true)
+                    Theme.Appearance.apply(UserDefaults.standard.string(forKey: Theme.Appearance.key))
                     Updater.shared.checkAtLaunch()
                 }
         }

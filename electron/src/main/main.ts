@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { app, BrowserWindow, ipcMain, Menu, safeStorage, shell, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, safeStorage, shell, type MenuItemConstructorOptions } from 'electron'
 import { Events, invokeMethods } from '../shared/api'
 import type { MenuAction } from '../shared/types'
 import { Controller } from './controller'
@@ -22,13 +22,15 @@ const cipher: SecretCipher = {
 }
 
 function createWindow(controller: Controller): void {
+  // The appearance setting drives prefers-color-scheme in the page and the native menus and dialogs.
+  nativeTheme.themeSource = controller.settings.theme
   window = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 900,
     minHeight: 600,
     title: 'RemoteSSH',
-    backgroundColor: '#11131a',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#161b24' : '#ffffff',
     icon: path.join(__dirname, 'icon.png'),
     show: false,
     webPreferences: {

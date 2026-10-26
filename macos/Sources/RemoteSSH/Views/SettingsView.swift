@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @AppStorage(Updater.autoCheckKey) private var checkForUpdates = true
+    @AppStorage(Theme.Appearance.key) private var appearance = Theme.Appearance.system.rawValue
 
     var body: some View {
         @Bindable var model = model
@@ -31,6 +32,11 @@ struct SettingsView: View {
             .tabItem { Label("Connection", systemImage: "network") }
 
             Form {
+                Picker("Appearance:", selection: $appearance) {
+                    ForEach(Theme.Appearance.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: appearance) { _, value in Theme.Appearance.apply(value) }
                 Toggle("Show hidden files", isOn: $model.settings.showHiddenFiles)
                 Toggle("Highlight differences between panes", isOn: $model.settings.showDirectoryComparison)
             }

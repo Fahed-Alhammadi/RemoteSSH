@@ -1,7 +1,13 @@
 import { useState } from 'react'
-import { Settings } from 'lucide-react'
-import type { AppSettings, OverwriteAction } from '../../shared/types'
+import { Monitor, Moon, Settings, Sun } from 'lucide-react'
+import type { AppSettings, OverwriteAction, ThemeMode } from '../../shared/types'
 import { Modal } from './ui'
+
+const themes: { id: ThemeMode; label: string; icon: typeof Sun }[] = [
+  { id: 'system', label: 'System', icon: Monitor },
+  { id: 'light', label: 'Light', icon: Sun },
+  { id: 'dark', label: 'Dark', icon: Moon },
+]
 
 const overwriteLabels: Record<OverwriteAction, string> = {
   ask: 'Ask for action',
@@ -44,6 +50,14 @@ export function SettingsDialog(props: { initial: AppSettings; onClose: () => voi
         <label>Keep-alive</label>
         <label className="check"><input type="checkbox" checked={s.keepAlive} onChange={(e) => setS({ ...s, keepAlive: e.target.checked })} /> Send keep-alive packets</label>
         <h3>Interface</h3>
+        <label id="appearance-label">Appearance</label>
+        <div className="segmented theme-choice" role="radiogroup" aria-labelledby="appearance-label">
+          {themes.map((t) => (
+            <button key={t.id} type="button" role="radio" aria-checked={s.theme === t.id} className={s.theme === t.id ? 'active' : ''} onClick={() => setS({ ...s, theme: t.id })}>
+              <t.icon size={14} strokeWidth={1.75} /> {t.label}
+            </button>
+          ))}
+        </div>
         <label>Hidden files</label>
         <label className="check"><input type="checkbox" checked={s.showHiddenFiles} onChange={(e) => setS({ ...s, showHiddenFiles: e.target.checked })} /> Show hidden files</label>
         <label>Comparison</label>

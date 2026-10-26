@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// "Ink & Teal" design tokens. Mirrors the CSS variables in electron/src/renderer/styles.css.
+/// "Workbench" design tokens. Mirrors the CSS variables in electron/src/renderer/styles.css.
 enum Theme {
-    /// Brand tint: teal-700 in light mode (white text 5.5:1), teal-400 in dark mode.
-    static let accent = adaptive(light: 0x0F766E, dark: 0x2DD4BF)
-    static let accentSoft = adaptive(light: 0x0D9488, dark: 0x2DD4BF, alpha: 0.13)
+    /// Muted professional blue: white text on it is 5.7:1 (light); light blue on dark surfaces 8.3:1.
+    static let accent = adaptive(light: 0x2F5FD0, dark: 0x8AB4FF)
+    static let accentSoft = adaptive(light: 0x2F5FD0, dark: 0x8AB4FF, alpha: 0.12)
     static let folder = adaptive(light: 0x3B82F6, dark: 0x60A5FA)
     static let success = adaptive(light: 0x15803D, dark: 0x4ADE80)
     static let warning = adaptive(light: 0xEA580C, dark: 0xFB923C)
@@ -17,13 +17,30 @@ enum Theme {
     enum Terminal {
         static let background = rgb(0x0A1019)
         static let foreground = rgb(0xE6EDF3)
-        static let cursor = rgb(0x2DD4BF)
-        static let selection = rgb(0x2DD4BF, alpha: 0.3)
+        static let cursor = rgb(0x8AB4FF)
+        static let selection = rgb(0x8AB4FF, alpha: 0.3)
         /// ANSI 0–15: black, red, green, yellow, blue, magenta, cyan, white, then the bright variants.
         static let ansi: [UInt32] = [
-            0x484F58, 0xF87171, 0x4ADE80, 0xFACC15, 0x60A5FA, 0xA78BFA, 0x2DD4BF, 0xC9D1D9,
-            0x8D9AA9, 0xF87171, 0x4ADE80, 0xFACC15, 0x60A5FA, 0xA78BFA, 0x2DD4BF, 0xF0F6FC,
+            0x484F58, 0xF87171, 0x4ADE80, 0xFACC15, 0x60A5FA, 0xA78BFA, 0x67C4DD, 0xC9D1D9,
+            0x8D9AA9, 0xF87171, 0x4ADE80, 0xFACC15, 0x60A5FA, 0xA78BFA, 0x67C4DD, 0xF0F6FC,
         ]
+    }
+
+    /// Light, dark, or follow the system. Kept in UserDefaults (not AppSettings, whose synthesized
+    /// Codable would drop older saved settings when a key is added).
+    enum Appearance: String, CaseIterable, Identifiable {
+        case system, light, dark
+        static let key = "RemoteSSH.appearance"
+        var id: String { rawValue }
+        var title: String { rawValue.capitalized }
+
+        static func apply(_ raw: String?) {
+            switch Appearance(rawValue: raw ?? "") ?? .system {
+            case .system: NSApp.appearance = nil
+            case .light: NSApp.appearance = NSAppearance(named: .aqua)
+            case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
+            }
+        }
     }
 
     static func rgb(_ hex: UInt32, alpha: CGFloat = 1) -> NSColor {

@@ -1,7 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeftRight,
-  ChevronDown,
   CircleStop,
   Columns2,
   Copy,
@@ -25,16 +24,13 @@ import {
   PlugZap,
   RefreshCw,
   RotateCw,
-  ScrollText,
   Server,
-  Settings,
   ShieldCheck,
   ShieldOff,
   SquareTerminal,
   Trash2,
   Unplug,
   Upload,
-  User,
   X,
 } from 'lucide-react'
 import type { ConnectResult } from '../shared/api'
@@ -55,12 +51,13 @@ import { errorMessage, formatSize, RemotePath } from '../shared/util'
 import { version } from '../../package.json'
 import { api } from './api'
 import { FilePane, type CompareMark, type DragPayload } from './components/FilePane'
-import { LogView, QueueView } from './components/LogQueue'
+import { Dock, type DockPanel } from './components/LogQueue'
 import { PromptDialog } from './components/Prompts'
 import { SettingsDialog } from './components/SettingsDialog'
-import { SiteManager, siteIcon } from './components/SiteManager'
+import { Sidebar } from './components/Sidebar'
+import { SiteManager } from './components/SiteManager'
 import type { TerminalRequest, TerminalStatus } from './components/TerminalView'
-import { ContextMenu, IconButton, Modal, type MenuEntry } from './components/ui'
+import { IconButton, Modal, type MenuEntry } from './components/ui'
 
 interface PendingPrompt {
   key: number
@@ -92,16 +89,23 @@ export function App() {
   const [dialog, setDialog] = useState<'sites' | 'settings' | 'about' | null>(null)
   const [compare, setCompare] = useState(true)
   const [syncBase, setSyncBase] = useState<{ local: string; remote: string } | null>(null)
-  const [showLog, setShowLog] = useState(true)
-  const [quick, setQuick] = useState({ host: '', user: '', password: '', port: '' })
-  const [siteMenu, setSiteMenu] = useState<{ x: number; y: number } | null>(null)
+  const [quick, setQuick] = useState({ address: '', password: '' })
+  const [dockPanel, setDockPanel] = useState<DockPanel>('activity')
+  const [dockOpen, setDockOpen] = useState(true)
+  const [dockHeight, setDockHeight] = useState(220)
   const [terminal, setTerminal] = useState<(TerminalRequest & { label: string }) | null>(null)
   const [terminalStatus, setTerminalStatus] = useState<TerminalStatus>('disconnected')
-  const [terminalActive, setTerminalActive] = useState(false)
   const [terminalMax, setTerminalMax] = useState(false)
   const localLogID = useRef(0)
 
   const connected = conn.state === 'connected'
+  const terminalActive = dockOpen && dockPanel === 'terminal'
+  const setTerminalActive = (show: boolean) => {
+    if (show) {
+      setDockPanel('terminal')
+      setDockOpen(true)
+    } else if (dockPanel === 'terminal') setDockPanel('transfers')
+  }
   const canTerminal = connected && conn.site?.serverProtocol === 'sftp'
 
   // MARK: Messages and prompts
@@ -377,7 +381,13 @@ export function App() {
         return
       case 'toggleCompare': return setCompare((c) => !c)
       case 'toggleSync': return toggleSync()
-      case 'toggleLog': return setShowLog((s) => !s)
+      case 'toggleLog':
+        if (dockOpen && dockPanel === 'activity') setDockOpen(false)
+        else {
+          setDockPanel('activity')
+          setDockOpen(true)
+        }
+        return
       case 'toggleTerminal': return toggleTerminal()
     }
   }
@@ -498,56 +508,60 @@ export function App() {
   const statusSite = conn.site
 
   return (
-    <div className={`app${terminalActive && terminalMax ? ' terminal-max' : ''}`}>
-      <header className="toolbar">
-        <img className="brand" src="./icon.png" alt="" width={22} height={22} />
-        <div className="group">
-          <button type="button" className="toolbar-site" onClick={() => setDialog('sites')} title={`Site Manager (${mod}S)`}>
-            <Server size={18} /> Sites
-          </button>
-          <button type="button" className="icon-button narrow" aria-label="Connect to a site" onClick={(e) => setSiteMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().bottom + 4 })}>
-            <ChevronDown size={14} />
-          </button>
-        </div>
-        <div className="group">
-          <IconButton icon={RefreshCw} label="Refresh" shortcut="F5" onClick={() => runMenu.current('refresh')} />
-          <IconButton icon={RotateCw} label="Reconnect" shortcut={`${mod}R`} disabled={!conn.site || conn.state === 'connecting'} onClick={() => runMenu.current('reconnect')} />
-          <IconButton icon={Unplug} label="Disconnect" shortcut={`${mod}D`} disabled={conn.state === 'disconnected'} onClick={() => runMenu.current('disconnect')} />
-        </div>
-        <div className="group">
-          <IconButton icon={processing ? Pause : Play} label={processing ? 'Pause queue' : 'Process queue'} shortcut={`${mod}P`} active={!processing} onClick={() => runMenu.current('toggleQueue')} />
-          <IconButton icon={CircleStop} label="Stop all transfers" tint="var(--c-red)" disabled={!queueItems.some((i) => i.status === 'transferring')} onClick={() => runMenu.current('stopAll')} />
-        </div>
-        <div className="group">
-          <IconButton icon={Columns2} label="Directory comparison" active={compare} onClick={() => setCompare((c) => !c)} />
-          <IconButton icon={FolderSync} label="Synchronized browsing" active={!!syncBase} disabled={!connected} onClick={toggleSync} />
-          <IconButton icon={settings?.showHiddenFiles ? Eye : EyeOff} label="Show hidden files" active={settings?.showHiddenFiles} onClick={() => runMenu.current('toggleHidden')} />
-          <IconButton icon={ScrollText} label="Message log" active={showLog} onClick={() => setShowLog((s) => !s)} />
-          <IconButton icon={SquareTerminal} label="Terminal" shortcut="Ctrl+`" active={terminalActive} onClick={toggleTerminal} />
-        </div>
-        <span className="spacer" />
-        <IconButton icon={Settings} label="Settings" onClick={() => setDialog('settings')} />
-      </header>
+    <div className={`app${terminalActive && terminalMax ? ' dock-max' : ''}`}>
+      <Sidebar
+        sites={sites.sites}
+        connection={conn}
+        onConnect={(id) => void connect(() => api.connect(id))}
+        onManage={() => setDialog('sites')}
+        onSettings={() => setDialog('settings')}
+      />
 
-      <form
-        className="quickconnect"
-        onSubmit={(e) => {
-          e.preventDefault()
-          void connect(() => api.quickConnect(quick.host, quick.user, quick.password, quick.port))
-        }}
-      >
-        <label><Globe size={14} /><input placeholder="Host (sftp://, ftp://, ftps://)" value={quick.host} spellCheck={false} onChange={(e) => setQuick({ ...quick, host: e.target.value })} /></label>
-        <label><User size={14} /><input placeholder="Username" value={quick.user} spellCheck={false} onChange={(e) => setQuick({ ...quick, user: e.target.value })} /></label>
-        <label><KeyRound size={14} /><input type="password" placeholder="Password" value={quick.password} onChange={(e) => setQuick({ ...quick, password: e.target.value })} /></label>
-        <label className="port"><input placeholder="Port" value={quick.port} inputMode="numeric" onChange={(e) => setQuick({ ...quick, port: e.target.value.replace(/\D/g, '') })} /></label>
-        <button type="submit" className="primary" disabled={!quick.host || conn.state === 'connecting'}>
-          <PlugZap /> Connect
-        </button>
-      </form>
+      <div className="workspace">
+        <header className="commandbar">
+          <form
+            className="address"
+            onSubmit={(e) => {
+              e.preventDefault()
+              void connect(() => api.quickConnect(quick.address, '', quick.password, ''))
+            }}
+          >
+            <label className="address-field">
+              <Globe size={15} />
+              <input
+                aria-label="Server address"
+                placeholder="sftp://user@host:22/path"
+                value={quick.address}
+                spellCheck={false}
+                onChange={(e) => setQuick({ ...quick, address: e.target.value })}
+              />
+            </label>
+            <label className="password-field">
+              <KeyRound size={15} />
+              <input type="password" aria-label="Password" placeholder="Password" value={quick.password} onChange={(e) => setQuick({ ...quick, password: e.target.value })} />
+            </label>
+            <button type="submit" className="primary" disabled={!quick.address || conn.state === 'connecting'}>
+              <PlugZap size={15} /> Connect
+            </button>
+          </form>
+          <div className="group" aria-label="Connection">
+            <IconButton icon={RefreshCw} label="Refresh" shortcut="F5" onClick={() => runMenu.current('refresh')} />
+            <IconButton icon={RotateCw} label="Reconnect" shortcut={`${mod}R`} disabled={!conn.site || conn.state === 'connecting'} onClick={() => runMenu.current('reconnect')} />
+            <IconButton icon={Unplug} label="Disconnect" shortcut={`${mod}D`} disabled={conn.state === 'disconnected'} onClick={() => runMenu.current('disconnect')} />
+          </div>
+          <div className="group" aria-label="Queue">
+            <IconButton icon={processing ? Pause : Play} label={processing ? 'Pause queue' : 'Process queue'} shortcut={`${mod}P`} active={!processing} onClick={() => runMenu.current('toggleQueue')} />
+            <IconButton icon={CircleStop} label="Stop all transfers" tint="var(--c-red)" disabled={!queueItems.some((i) => i.status === 'transferring')} onClick={() => runMenu.current('stopAll')} />
+          </div>
+          <div className="group" aria-label="View">
+            <IconButton icon={Columns2} label="Directory comparison" active={compare} onClick={() => setCompare((c) => !c)} />
+            <IconButton icon={FolderSync} label="Synchronized browsing" active={!!syncBase} disabled={!connected} onClick={toggleSync} />
+            <IconButton icon={settings?.showHiddenFiles ? Eye : EyeOff} label="Show hidden files" active={settings?.showHiddenFiles} onClick={() => runMenu.current('toggleHidden')} />
+            <IconButton icon={SquareTerminal} label="Terminal" shortcut="Ctrl+`" active={terminalActive} onClick={toggleTerminal} />
+          </div>
+        </header>
 
-      {showLog && <LogView lines={log} />}
-
-      <main className="panes">
+        <main className="panes">
         <FilePane
           side="local"
           title="Local"
@@ -596,35 +610,40 @@ export function App() {
               <div className="unavailable">
                 <div className="empty-icon">{conn.state === 'connecting' ? <RefreshCw size={26} className="spin" /> : <Plug size={26} />}</div>
                 <h3>{conn.state === 'connecting' ? 'Connecting…' : 'Not connected'}</h3>
-                <p>{conn.state === 'connecting' ? displayAddress(conn.site!) : 'Use Quickconnect above or open the Site Manager.'}</p>
-                {conn.state === 'disconnected' && (
-                  <button type="button" className="primary" onClick={() => setDialog('sites')}><Server size={14} /> Open Site Manager</button>
+                <p>{conn.state === 'connecting' ? displayAddress(conn.site!) : 'Pick a site on the left, or type an address above.'}</p>
+                {conn.state === 'disconnected' && !sites.sites.length && (
+                  <button type="button" className="primary" onClick={() => setDialog('sites')}><Server size={14} /> Add a site</button>
                 )}
               </div>
             )
           }
         />
-      </main>
+        </main>
 
-      <QueueView
-        items={queueItems}
-        siteName={siteName}
-        onRemove={(ids) => void api.removeTransfers(ids)}
-        onRetry={(ids) => void api.retryTransfers(ids)}
-        maximized={terminalMax}
-        terminal={{
-          active: terminalActive,
-          status: terminal ? terminalStatus : null,
-          label: terminal?.label ?? '',
-          select: showTerminal,
-          actions: terminal && (
-            <>
-              <IconButton icon={RotateCw} label="Restart terminal" disabled={!canTerminal} onClick={() => openTerminal(terminal.dir, false)} />
-              <IconButton icon={terminalMax ? Minimize2 : Maximize2} label={terminalMax ? 'Restore' : 'Maximize'} onClick={() => setTerminalMax((m) => !m)} />
-              <IconButton icon={X} label="Close terminal" onClick={closeTerminal} />
-            </>
-          ),
-          view: terminal ? (
+        <Dock
+          panel={dockPanel}
+          open={dockOpen}
+          maximized={terminalActive && terminalMax}
+          height={dockHeight}
+          onPanel={(p) => (p === 'terminal' ? showTerminal(true) : setDockPanel(p))}
+          onOpen={setDockOpen}
+          onResize={setDockHeight}
+          log={log}
+          items={queueItems}
+          siteName={siteName}
+          onRemove={(ids) => void api.removeTransfers(ids)}
+          onRetry={(ids) => void api.retryTransfers(ids)}
+          terminal={{
+            status: terminal ? terminalStatus : null,
+            label: terminal?.label ?? '',
+            actions: terminal && (
+              <>
+                <IconButton icon={RotateCw} label="Restart terminal" disabled={!canTerminal} onClick={() => openTerminal(terminal.dir, false)} />
+                <IconButton icon={terminalMax ? Minimize2 : Maximize2} label={terminalMax ? 'Restore' : 'Maximize'} onClick={() => setTerminalMax((m) => !m)} />
+                <IconButton icon={X} label="Close terminal" onClick={closeTerminal} />
+              </>
+            ),
+            view: terminal ? (
             <Suspense>
               <TerminalView request={terminal} visible={terminalActive} onStatus={setTerminalStatus} />
             </Suspense>
@@ -647,8 +666,9 @@ export function App() {
               </div>
             )
           ),
-        }}
-      />
+          }}
+        />
+      </div>
 
       <footer className="statusbar">
         <span className={`status-dot ${conn.state === 'connected' && !conn.secure ? 'insecure' : conn.state}`} aria-hidden />
@@ -665,24 +685,6 @@ export function App() {
         <span className="spacer" />
         <span>{processing ? '' : 'Queue paused · '}{queueStats.pending ? `${queueStats.pending} queued · ${formatSize(queueStats.bytes)}` : 'Queue empty'}</span>
       </footer>
-
-      {siteMenu && (
-        <ContextMenu
-          x={siteMenu.x}
-          y={siteMenu.y}
-          onClose={() => setSiteMenu(null)}
-          items={
-            sites.sites.length
-              ? [...sites.sites].sort((a, b) => `${a.folder}/${a.name}`.localeCompare(`${b.folder}/${b.name}`)).map((s) => ({
-                  label: s.folder ? `${s.folder} / ${s.name}` : s.name,
-                  icon: siteIcon(s).icon,
-                  disabled: !s.host,
-                  onClick: () => void connect(() => api.connect(s.id)),
-                }))
-              : [{ label: 'No saved sites', disabled: true, onClick: () => undefined }]
-          }
-        />
-      )}
 
       {dialog === 'sites' && (
         <SiteManager
