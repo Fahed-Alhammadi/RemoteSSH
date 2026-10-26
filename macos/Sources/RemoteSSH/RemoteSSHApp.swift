@@ -77,6 +77,8 @@ struct RemoteSSHApp: App {
             Toggle("Directory Comparison", isOn: Binding(get: { model.compareDirectories }, set: { model.compareDirectories = $0 }))
             Toggle("Synchronized Browsing", isOn: Binding(get: { model.synchronizedBrowsing }, set: { _ in model.toggleSynchronizedBrowsing() }))
                 .keyboardShortcut("y", modifiers: .command)
+            Toggle("Terminal", isOn: Binding(get: { model.showTerminal }, set: { model.showTerminalTab($0) }))
+                .keyboardShortcut("`", modifiers: .control)
             Divider()
         }
     }

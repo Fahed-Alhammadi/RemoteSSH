@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -10,11 +10,13 @@ import {
   MessageSquareReply,
   RotateCcw,
   SendHorizontal,
+  SquareTerminal,
   Trash2,
   X,
 } from 'lucide-react'
 import type { LogKind, LogLine, TransferItem } from '../../shared/types'
 import { formatSize } from '../../shared/util'
+import type { TerminalStatus } from './TerminalView'
 import { ContextMenu, useVirtualRows } from './ui'
 
 const logIcons: Record<LogKind, { icon: typeof Info; cls: string }> = {
@@ -55,11 +57,33 @@ export function LogView({ lines }: { lines: LogLine[] }) {
 
 type Tab = 'queued' | 'failed' | 'finished'
 
+const emptyText: Record<Tab, string> = {
+  queued: 'Drag files between the panes to transfer them.',
+  failed: 'No failed transfers.',
+  finished: 'Finished transfers appear here.',
+}
+
+const terminalStatusText: Record<TerminalStatus, string> = { connecting: 'connecting…', connected: '', disconnected: 'ended' }
+
+/** The terminal tab shares the card with the queue. */
+export interface TerminalTab {
+  active: boolean
+  /** Null until a terminal has been opened. */
+  status: TerminalStatus | null
+  label: string
+  select: (active: boolean) => void
+  /** Buttons shown on the right of the tab bar while the terminal is active. */
+  actions: ReactNode
+  view: ReactNode
+}
+
 export function QueueView(props: {
   items: TransferItem[]
   siteName: (id: string) => string
   onRemove: (ids: string[]) => void
   onRetry: (ids: string[]) => void
+  terminal: TerminalTab
+  maximized: boolean
 }) {
   const [tab, setTab] = useState<Tab>('queued')
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -80,18 +104,45 @@ export function QueueView(props: {
     { id: 'failed', label: 'Failed', icon: CircleAlert },
     { id: 'finished', label: 'Done', icon: CircleCheck },
   ]
+  const term = props.terminal
+  const termActive = term.active
   return (
-    <div className="queue">
+    <div className={`queue${termActive ? ' with-terminal' : ''}${termActive && props.maximized ? ' maximized' : ''}`}>
       <div className="tabs" role="tablist">
         {tabs.map((t) => (
-          <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={!termActive && tab === t.id}
+            className={!termActive && tab === t.id ? 'active' : ''}
+            onClick={() => {
+              setTab(t.id)
+              term.select(false)
+            }}
+          >
             <t.icon size={14} />
             {t.label}
             <span className="badge">{groups[t.id].length}</span>
           </button>
         ))}
+        <button type="button" role="tab" aria-selected={termActive} className={termActive ? 'active' : ''} onClick={() => term.select(true)} title={term.label || 'Terminal (Ctrl+`)'}>
+          <SquareTerminal size={14} />
+          Terminal
+          {term.status && <span className={`status-dot ${term.status}`} aria-hidden />}
+          {term.status && terminalStatusText[term.status] && <span className="muted">{terminalStatusText[term.status]}</span>}
+        </button>
+        {termActive && (
+          <>
+            <span className="spacer" />
+            <span className="term-label">{term.label}</span>
+            {term.actions}
+          </>
+        )}
       </div>
+      {term.view}
       <div
+        hidden={termActive}
         className="queue-rows"
         ref={virtual.ref}
         tabIndex={0}
@@ -101,7 +152,7 @@ export function QueueView(props: {
           setMenu({ x: e.clientX, y: e.clientY })
         }}
       >
-        {rows.length === 0 && <div className="empty">No {tabs.find((t) => t.id === tab)!.label.toLowerCase()} transfers</div>}
+        {rows.length === 0 && <div className="empty">{emptyText[tab]}</div>}
         <div style={{ height: virtual.padTop }} />
         {rows.slice(virtual.start, virtual.end).map((item) => {
           const pct = item.size ? Math.min(100, (item.transferred / item.size) * 100) : 0

@@ -72,6 +72,10 @@ struct MainView: View {
                 Label("Sync Browsing", systemImage: "link.circle")
             }
             .help("Navigate both panes together")
+            Toggle(isOn: Binding(get: { model.showTerminal }, set: { model.showTerminalTab($0) })) {
+                Label("Terminal", systemImage: "terminal")
+            }
+            .help("Show the SSH terminal (⌃`)")
         }
     }
 }

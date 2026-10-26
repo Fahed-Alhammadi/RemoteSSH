@@ -13,11 +13,27 @@ enum Theme {
     static let upload = adaptive(light: 0x2563EB, dark: 0x60A5FA)
     static let download = success
 
+    /// The terminal is always ink (the icon's ">_" surface), in both appearances. Mirrors the --term-* CSS variables.
+    enum Terminal {
+        static let background = rgb(0x0A1019)
+        static let foreground = rgb(0xE6EDF3)
+        static let cursor = rgb(0x2DD4BF)
+        static let selection = rgb(0x2DD4BF, alpha: 0.3)
+        /// ANSI 0–15: black, red, green, yellow, blue, magenta, cyan, white, then the bright variants.
+        static let ansi: [UInt32] = [
+            0x484F58, 0xF87171, 0x4ADE80, 0xFACC15, 0x60A5FA, 0xA78BFA, 0x2DD4BF, 0xC9D1D9,
+            0x8D9AA9, 0xF87171, 0x4ADE80, 0xFACC15, 0x60A5FA, 0xA78BFA, 0x2DD4BF, 0xF0F6FC,
+        ]
+    }
+
+    static func rgb(_ hex: UInt32, alpha: CGFloat = 1) -> NSColor {
+        NSColor(srgbRed: CGFloat(hex >> 16 & 0xff) / 255, green: CGFloat(hex >> 8 & 0xff) / 255,
+                blue: CGFloat(hex & 0xff) / 255, alpha: alpha)
+    }
+
     static func adaptive(light: UInt32, dark: UInt32, alpha: CGFloat = 1) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
-            let hex = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: CGFloat(hex >> 16 & 0xff) / 255, green: CGFloat(hex >> 8 & 0xff) / 255,
-                           blue: CGFloat(hex & 0xff) / 255, alpha: alpha)
+            rgb(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light, alpha: alpha)
         })
     }
 }

@@ -10,6 +10,7 @@ import { CancelledError, type RemoteSession, type SessionContext } from '../src/
 import { SFTPSession } from '../src/main/engine/sftpSession'
 import { KnownHostsStore } from '../src/main/store/knownHosts'
 import { QueueStore } from '../src/main/store/settingsStore'
+import { Terminals } from '../src/main/terminal'
 import { TransferManager } from '../src/main/transfers'
 import { makeSite } from '../src/shared/site'
 import { defaultSettings, type PromptRequest, type Site } from '../src/shared/types'
@@ -197,5 +198,35 @@ describe.skipIf(!env.RSSH_SFTP_HOST)('SFTP', () => {
     await done
     for (const f of files) expect(sha(path.join(remoteDir, path.basename(f)))).toBe(sha(f))
     browse.close()
+  })
+
+  it('runs an interactive shell in the requested folder', async () => {
+    const dir = fs.mkdtempSync(path.join(work, "it's a shell-"))
+    let output = ''
+    let ended: string | undefined
+    const finished = new Promise<void>((resolve) => {
+      const terminals: Terminals = new Terminals({
+        connect: async (site) => {
+          const session = new SFTPSession(context(site))
+          await session.connect()
+          return session
+        },
+        send: (_channel, events) => {
+          for (const e of events) {
+            output += e.data
+            ended ??= e.ended
+          }
+          if (ended) resolve()
+        },
+      })
+      void terminals.open(site(env.RSSH_SFTP_KEY!), 100, 30, dir).then((id) => {
+        terminals.resize(id, 120, 40)
+        terminals.write(id, 'echo "cols=$(tput cols) dir=$(pwd)"; exit 3\n')
+      })
+    })
+    await finished
+    expect(output).toContain(`dir=${dir}`)
+    expect(output).toContain('cols=120')
+    expect(ended).toBe('exit 3')
   })
 })

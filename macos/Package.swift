@@ -16,6 +16,8 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.81.0"),
         // Capped so the package also builds against the macOS 26.x SDK (see CLAUDE.md, "Build").
         .package(url: "https://github.com/apple/swift-collections.git", "1.1.0"..<"1.5.0"),
+        // Terminal emulator view. Pinned: 1.20 is a pre-release and 1.99 previews 2.0's I/O changes.
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.19.0"),
     ],
     targets: [
         // Thin C shim over the system libcurl (FTP/FTPS); curl_easy_setopt is variadic and not callable from Swift.
@@ -38,7 +40,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "RemoteSSH",
-            dependencies: ["RemoteSSHCore"]
+            dependencies: ["RemoteSSHCore", .product(name: "SwiftTerm", package: "SwiftTerm")]
         ),
         .testTarget(
             name: "RemoteSSHCoreTests",

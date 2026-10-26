@@ -32,7 +32,7 @@ struct PromptSheet: View {
                  ? "The server's host key does not match the key that was cached. Someone could be trying to intercept the connection, or the server administrator changed the key."
                  : "The server's host key is unknown. You have no guarantee that the server is the computer you think it is.")
             Grid(alignment: .leading) {
-                GridRow { Text("Host:").foregroundStyle(.secondary); Text("\(host):\(port)") }
+                GridRow { Text("Host:").foregroundStyle(.secondary); Text(verbatim: "\(host):\(port)") }
                 GridRow { Text("Hostkey algorithm:").foregroundStyle(.secondary); Text(keyType) }
                 GridRow { Text("Fingerprint:").foregroundStyle(.secondary); Text(fingerprint).font(.system(.body, design: .monospaced)).textSelection(.enabled) }
             }
@@ -41,7 +41,7 @@ struct PromptSheet: View {
 
         case let .certificate(host, port, reason):
             Label("Unknown certificate", systemImage: "lock.trianglebadge.exclamationmark").font(.headline)
-            Text("The server's TLS certificate for \(host):\(port) could not be verified:")
+            Text("The server's TLS certificate for \(host):\(String(port)) could not be verified:")
             Text(reason).font(.system(.body, design: .monospaced)).foregroundStyle(.orange)
             Text("Connect anyway? The certificate will be trusted for this site from now on.").foregroundStyle(.secondary)
             buttons(ok: "Connect Anyway", cancel: "Cancel") { model.prompts.answer(.bool($0)) }

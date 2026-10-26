@@ -167,6 +167,38 @@ private func exercise(_ session: RemoteSession) async throws {
     }
 }
 
+extension IntegrationTests {
+    @Test(.enabled(if: env["RSSH_SFTP_HOST"] != nil))
+    func sftpShell() async throws {
+        let site = Site(host: env["RSSH_SFTP_HOST"]!, port: Int(env["RSSH_SFTP_PORT"] ?? "22")!, serverProtocol: .sftp,
+                        logonType: .keyFile, user: env["RSSH_SFTP_USER"]!, keyFilePath: env["RSSH_SFTP_KEY"]!)
+        let prompter = AcceptAllPrompter() // Sessions hold their prompter weakly.
+        let session = try #require(SessionFactory.make(site: site, credentials: .init(password: ""), options: .init(),
+                                                       prompter: prompter, hostKeys: KnownHostsStore(url: tmpURL()),
+                                                       log: { _ in }) as? SFTPSession)
+        try await session.connect()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("it's a shell-\(UUID())").path
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let shell = RemoteShell()
+        let output = OutputBox()
+        let run = Task { try await session.runShell(shell, cols: 100, rows: 30, startIn: dir) { output.append($0) } }
+        try await Task.sleep(for: .seconds(1))
+        shell.resize(cols: 120, rows: 40)
+        shell.write("echo \"cols=$(tput cols) dir=$(pwd)\"; exit 3\n")
+        #expect(try await run.value == "exit 3")
+        #expect(output.text.contains("cols=120"))
+        #expect(output.text.contains("dir=\(dir)"))
+        await session.disconnect()
+    }
+}
+
+private final class OutputBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+    func append(_ chunk: Data) { lock.withLock { data.append(chunk) } }
+    var text: String { lock.withLock { String(decoding: data, as: UTF8.self) } }
+}
+
 private func tmpURL() -> URL {
     FileManager.default.temporaryDirectory.appendingPathComponent("fr-known-\(UUID()).json")
 }

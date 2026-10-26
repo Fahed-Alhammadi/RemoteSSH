@@ -109,6 +109,7 @@ function buildMenu(controller: Controller): Menu {
         { label: 'Directory Comparison', accelerator: 'CmdOrCtrl+Shift+C', click: send('toggleCompare') },
         { label: 'Synchronized Browsing', accelerator: 'CmdOrCtrl+Shift+Y', click: send('toggleSync') },
         { label: 'Message Log', accelerator: 'CmdOrCtrl+Shift+L', click: send('toggleLog') },
+        { label: 'Terminal', accelerator: 'Ctrl+`', click: send('toggleTerminal') },
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },

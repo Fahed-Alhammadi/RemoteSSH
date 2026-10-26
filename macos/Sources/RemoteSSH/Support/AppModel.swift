@@ -52,6 +52,10 @@ final class AppModel {
 
     var showSiteManager = false
 
+    // Terminal (a tab of the queue area once opened)
+    var terminal: TerminalController?
+    var showTerminal = false
+
     @ObservationIgnored lazy var transfers = TransferManager(model: self)
     @ObservationIgnored lazy var editWatcher = EditWatcher(model: self)
 

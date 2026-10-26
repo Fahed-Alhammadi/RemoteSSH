@@ -182,4 +182,4 @@ export type MenuAction =
   | 'siteManager' | 'importSites' | 'exportSites' | 'settings'
   | 'reconnect' | 'disconnect' | 'refresh' | 'customCommand'
   | 'toggleQueue' | 'clearFinished' | 'stopAll'
-  | 'toggleHidden' | 'toggleCompare' | 'toggleSync' | 'toggleLog' | 'about'
+  | 'toggleHidden' | 'toggleCompare' | 'toggleSync' | 'toggleLog' | 'toggleTerminal' | 'about'

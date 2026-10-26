@@ -24,6 +24,7 @@ RemoteSSH has two code bases that share one feature set and one site file format
 - **FTP/FTPS:** explicit or implicit TLS. Before any password is sent, you are asked about certificates that can't be verified.
 - **Browsing:** local and remote panes side by side, with sortable columns, a filter, file-type icons, hidden files, directory comparison, synchronized browsing, and drag & drop between panes and from your file manager.
 - **File operations:** create, rename, delete (recursively), change permissions, and View/Edit (open a remote file locally and upload it again when you save).
+- **SSH terminal:** for SFTP sites, a Terminal tab next to the transfer queue opens a shell on the server, on its own connection, in the folder you're viewing. Open it with Ctrl+` (all platforms), the toolbar, or *Open Terminal Here* on a remote folder. On Windows and Linux, copy and paste are Ctrl+Shift+C / Ctrl+Shift+V.
 - **Transfer queue:** parallel transfers, queued/failed/done tabs, automatic retries, resume, a choice of what to do when a file already exists, and speed limits. The queue is kept across restarts.
 - **Automatic updates:** checks GitHub for a new release at startup (or *Check for Updates…* in the menu), then downloads, installs and relaunches. The Windows portable `.exe` and Linux `.tar.gz` builds only open the download page.
 - **Import/export:** `File → Export Sites…` writes a `.remotessh` file and `File → Import from RemoteSSH…` reads one. The same file works on every platform. Passwords are only included if you choose to.
@@ -56,7 +57,7 @@ npm run dist:win       # → ../windows/dist/*.exe (works from Windows, macOS or
 
 ### macOS (`macos/`)
 
-You need macOS 15 or later with Xcode or the Xcode Command Line Tools.
+You need macOS 15 or later with Xcode 16 or later. The Command Line Tools alone are not enough, because the terminal view includes a Metal shader. With Xcode 26 or later, install the Metal Toolchain once: `xcodebuild -downloadComponent MetalToolchain`.
 
 ```bash
 cd macos

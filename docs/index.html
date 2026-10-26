@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RemoteSSH: free SFTP, FTP and FTPS client for macOS, Windows and Linux</title>
-  <meta name="description" content="RemoteSSH is a free, open-source file transfer client with two panes, a transfer queue and a site manager. SFTP, FTP and FTPS on macOS, Windows and Linux.">
+  <meta name="description" content="RemoteSSH is a free, open-source file transfer client with two panes, a transfer queue, a site manager and an SSH terminal. SFTP, FTP and FTPS on macOS, Windows and Linux.">
   <meta name="theme-color" content="#F5F8F8" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#11131A" media="(prefers-color-scheme: dark)">
   <meta property="og:title" content="RemoteSSH">
@@ -41,7 +41,7 @@
     <section class="hero" id="top">
       <div class="wrap">
         <h1>Move files between your computer and your servers.</h1>
-        <p class="lede">RemoteSSH is a free, open-source file transfer client for SFTP, FTP and FTPS. Two panes side by side, one transfer queue, and nothing to sign up for.</p>
+        <p class="lede">RemoteSSH is a free, open-source file transfer client for SFTP, FTP and FTPS. Two panes side by side, one transfer queue, an SSH terminal when you need one, and nothing to sign up for.</p>
         <div class="cta-row">
           <a class="button primary" id="hero-download" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">Download</a>
           <a class="button" href="#download">All platforms</a>
@@ -112,6 +112,7 @@
               <li><strong>Directory comparison</strong> highlights files that are newer, missing or different on either side.</li>
               <li><strong>Synchronized browsing</strong> follows you into the same folder on both sides.</li>
               <li><strong>Edit in place</strong>: open a remote file in your editor and RemoteSSH uploads it again when you save.</li>
+              <li><strong>SSH terminal</strong> below the panes for SFTP sites: open a shell on the server in the folder you're looking at, without leaving the app.</li>
             </ul>
           </div>
           <div class="feature-group">
@@ -132,6 +133,25 @@
             </ul>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section class="terminal" id="terminal" aria-labelledby="terminal-title">
+      <div class="wrap split">
+        <div class="split-intro">
+          <h2 id="terminal-title">A terminal when the files aren't enough</h2>
+          <ul class="plain">
+            <li>Open a shell on the server from the Terminal tab next to the transfer queue, with Ctrl+` or from a remote folder's menu.</li>
+            <li>It starts in the folder you're looking at, so unpacking an upload or checking a log takes one command.</li>
+            <li>It runs on its own connection, so long commands never hold up browsing or transfers. Available for SFTP sites.</li>
+          </ul>
+        </div>
+        <figure class="shot">
+          <picture>
+            <source srcset="images/terminal-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="images/terminal-light.webp" width="2560" height="1600" loading="lazy" alt="RemoteSSH connected over SFTP with the Terminal tab open below the panes. The shell is in the remote public_html folder and shows a file listing, the last lines of an access log and a backup archive being created.">
+          </picture>
+        </figure>
       </div>
     </section>
 

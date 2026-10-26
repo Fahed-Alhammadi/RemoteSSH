@@ -93,3 +93,8 @@ export function compareVersions(a: string, b: string): number {
   }
   return 0
 }
+
+/** Quotes a string as one POSIX shell word. */
+export function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}

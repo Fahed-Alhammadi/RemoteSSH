@@ -113,7 +113,7 @@ export function SiteManager(props: {
         <button type="button" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY - 80 })}><ArrowDownUp size={14} /> Import / Export</button>
         <span className="spacer" />
         <button type="button" onClick={props.onClose}>Cancel</button>
-        <button type="button" onClick={async () => (await save()) && props.onClose()}>OK</button>
+        <button type="button" onClick={async () => (await save()) && props.onClose()}>Save</button>
         <button type="button" className="primary" disabled={!site?.host}
           onClick={async () => site && (await save()) && props.onConnect(site.id)}><Plug size={14} /> Connect</button>
       </>}>

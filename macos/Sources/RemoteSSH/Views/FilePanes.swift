@@ -286,6 +286,11 @@ struct RemotePane: View {
         Button("Rename", systemImage: "pencil") { if let e = sel.first { model.remoteRename(e) } }.disabled(sel.count != 1)
         Button("Permissions…", systemImage: "lock.shield") { chmodTargets = ChmodTargets(entries: sel) }.disabled(sel.isEmpty)
         Button("Copy URL", systemImage: "link") { model.copyURLs(sel) }.disabled(sel.isEmpty)
+        Button("Open Terminal Here", systemImage: "terminal") {
+            let folder = sel.count == 1 && sel[0].isDirectory ? RemotePath.join(model.remotePath, sel[0].name) : model.remotePath
+            model.openTerminal(in: folder, reuse: true)
+        }
+        .disabled(!model.canOpenTerminal)
         Divider()
         Button("Delete", systemImage: "trash", role: .destructive) { model.remoteDelete(sel) }.disabled(sel.isEmpty)
     }

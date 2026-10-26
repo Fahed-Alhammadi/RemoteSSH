@@ -161,3 +161,10 @@ import Testing
         #expect(info.sha256 == "abcdef")
     }
 }
+
+@Suite struct ShellQuoteTests {
+    @Test func quotesAndEscapes() {
+        #expect(shellQuote("/var/www") == "'/var/www'")
+        #expect(shellQuote("it's $HOME") == "'it'\\''s $HOME'")
+    }
+}

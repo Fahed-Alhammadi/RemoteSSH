@@ -119,6 +119,7 @@ nav a:hover { color: var(--text); }
 /* Two-column sections */
 .split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(32px, 5vw, 72px); align-items: start; }
 .split.reverse { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); align-items: center; }
+.terminal .split { align-items: center; }
 .split-intro p, .split-intro li { color: var(--muted); }
 .protocols .split { grid-template-columns: minmax(0, 1fr); gap: 32px; }
 .protocols .split-intro { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(32px, 5vw, 72px); align-items: end; }

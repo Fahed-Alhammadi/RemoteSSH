@@ -24,6 +24,7 @@ const api: RemoteSSHApi = {
   onMenu: on(Events.menu),
   onSitesChanged: on(Events.sites),
   onRefresh: on(Events.refresh, true),
+  onTerminal: on(Events.terminal),
 }
 
 contextBridge.exposeInMainWorld('remotessh', api)

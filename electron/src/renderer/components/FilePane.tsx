@@ -7,6 +7,12 @@ import { ContextMenu, IconButton, useVirtualRows, type MenuEntry } from './ui'
 
 export type Side = 'local' | 'remote'
 export type CompareMark = 'lonely' | 'different' | 'newer'
+
+const compareText: Record<CompareMark, string> = {
+  lonely: 'Only in this pane',
+  different: 'Size differs from the other pane',
+  newer: 'Newer than in the other pane',
+}
 export interface DragPayload {
   side: Side
   dir: string
@@ -15,7 +21,7 @@ export interface DragPayload {
 
 type SortKey = 'name' | 'size' | 'type' | 'modified' | 'permissions' | 'owner'
 const ROW = 26
-const DRAG_TYPE = 'application/x-remotessh'
+export const DRAG_TYPE = 'application/x-remotessh'
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
@@ -226,6 +232,7 @@ export function FilePane(props: {
                   key={entry.name}
                   role="row"
                   aria-selected={isSelected}
+                  title={mark && compareText[mark]}
                   className={`row${isSelected ? ' selected' : ''}${mark ? ` cmp-${mark}` : ''}${dropTarget === entry.name ? ' drop' : ''}`}
                   draggable
                   onDragStart={(e) => dragStart(e, entry)}

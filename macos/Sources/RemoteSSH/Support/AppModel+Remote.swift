@@ -50,14 +50,14 @@ extension AppModel {
         }
     }
 
-    func makeSession(for site: Site, password: String) -> RemoteSession {
+    func makeSession(for site: Site, password: String, log: LogSink? = nil) -> RemoteSession {
         SessionFactory.make(
             site: site,
             credentials: SessionCredentials(password: password),
             options: settings.sessionOptions,
             prompter: prompts,
             hostKeys: knownHosts,
-            log: makeLogSink()
+            log: log ?? makeLogSink()
         )
     }
 

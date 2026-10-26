@@ -19,6 +19,13 @@ export interface ConnectResult {
   localPath: string | null
 }
 
+/** Terminal output; `ended` is set once, when the shell has exited ("exit 1", "closed"). */
+export interface TerminalEvent {
+  id: number
+  data: string
+  ended?: string
+}
+
 export interface QueueUpdate {
   upserts: TransferItem[]
   removed: string[]
@@ -74,6 +81,12 @@ export interface RemoteSSHApi {
   retryTransfers(ids: string[]): Promise<void>
   clearFinished(): Promise<void>
 
+  // Terminal (SSH shell on its own connection to the current site)
+  terminalOpen(cols: number, rows: number, dir: string | null): Promise<number>
+  terminalInput(id: number, data: string): Promise<void>
+  terminalResize(id: number, cols: number, rows: number): Promise<void>
+  terminalClose(id: number): Promise<void>
+
   // Prompts
   answerPrompt(id: number, value: unknown): Promise<void>
 
@@ -85,6 +98,7 @@ export interface RemoteSSHApi {
   onMenu(cb: (action: MenuAction) => void): () => void
   onSitesChanged(cb: (state: SitesState) => void): () => void
   onRefresh(cb: (pane: 'local' | 'remote', dir: string) => void): () => void
+  onTerminal(cb: (events: TerminalEvent[]) => void): () => void
 }
 
 /** IPC channel names; invoke channels mirror the API method names. */
@@ -96,6 +110,7 @@ export const Events = {
   menu: 'event:menu',
   sites: 'event:sites',
   refresh: 'event:refresh',
+  terminal: 'event:terminal',
 } as const
 
 export const invokeMethods = [
@@ -104,7 +119,7 @@ export const invokeMethods = [
   'listRemote', 'remoteMkdir', 'remoteRename', 'remoteDelete', 'remoteChmod', 'rawCommand', 'viewEdit',
   'listLocal', 'localMkdir', 'localRename', 'localTrash', 'localOpen', 'localReveal',
   'download', 'upload', 'queueSnapshot', 'setProcessing', 'stopAll', 'removeTransfers', 'retryTransfers',
-  'clearFinished', 'answerPrompt',
+  'clearFinished', 'terminalOpen', 'terminalInput', 'terminalResize', 'terminalClose', 'answerPrompt',
 ] as const satisfies readonly (keyof RemoteSSHApi)[]
 
 export type InvokeMethod = (typeof invokeMethods)[number]

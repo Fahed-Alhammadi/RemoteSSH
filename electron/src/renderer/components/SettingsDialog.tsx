@@ -36,6 +36,7 @@ export function SettingsDialog(props: { initial: AppSettings; onClose: () => voi
         <label>Retries on failure</label>{num('retryCount', 0, 10)}
         <label>Download limit (KiB/s)</label>{num('downloadLimitKiB', 0, 10_000_000)}
         <label>Upload limit (KiB/s)</label>{num('uploadLimitKiB', 0, 10_000_000)}
+        <span /><span className="muted small hint">0 means no limit. Changes apply to new transfers.</span>
         <label>Existing downloads</label>{overwrite('defaultOverwriteDownload')}
         <label>Existing uploads</label>{overwrite('defaultOverwriteUpload')}
         <h3>Connection</h3>
@@ -48,10 +49,9 @@ export function SettingsDialog(props: { initial: AppSettings; onClose: () => voi
         <label>Comparison</label>
         <label className="check"><input type="checkbox" checked={s.showDirectoryComparison} onChange={(e) => setS({ ...s, showDirectoryComparison: e.target.checked })} /> Highlight differences between panes</label>
         <h3>Updates</h3>
-        <label>Updates</label>
+        <label>New versions</label>
         <label className="check"><input type="checkbox" checked={s.checkForUpdates} onChange={(e) => setS({ ...s, checkForUpdates: e.target.checked })} /> Check for updates at startup</label>
       </div>
-      <p className="muted small">0 means unlimited. Limits apply to new transfers.</p>
     </Modal>
   )
 }

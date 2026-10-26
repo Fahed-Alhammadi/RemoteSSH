@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeftRight,
   ChevronDown,
@@ -16,6 +16,8 @@ import {
   HardDrive,
   KeyRound,
   Laptop,
+  Maximize2,
+  Minimize2,
   Pause,
   Pencil,
   Play,
@@ -28,13 +30,15 @@ import {
   Settings,
   ShieldCheck,
   ShieldOff,
+  SquareTerminal,
   Trash2,
   Unplug,
   Upload,
   User,
+  X,
 } from 'lucide-react'
 import type { ConnectResult } from '../shared/api'
-import { displayAddress, effectivePort } from '../shared/site'
+import { displayAddress, effectivePort, effectiveUser } from '../shared/site'
 import type {
   AppSettings,
   ConnectionInfo,
@@ -55,6 +59,7 @@ import { LogView, QueueView } from './components/LogQueue'
 import { PromptDialog } from './components/Prompts'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SiteManager, siteIcon } from './components/SiteManager'
+import type { TerminalRequest, TerminalStatus } from './components/TerminalView'
 import { ContextMenu, IconButton, Modal, type MenuEntry } from './components/ui'
 
 interface PendingPrompt {
@@ -68,6 +73,8 @@ let promptKey = 0
 const sep = api.platform === 'win32' ? '\\' : '/'
 const joinLocal = (dir: string, name: string) => (dir === '' ? name : dir.endsWith(sep) ? dir + name : dir + sep + name)
 const mod = api.platform === 'darwin' ? '⌘' : 'Ctrl+'
+// xterm is large, so it loads with the first terminal.
+const TerminalView = lazy(() => import('./components/TerminalView').then((m) => ({ default: m.TerminalView })))
 
 export function App() {
   const [sites, setSites] = useState<SitesState>({ sites: [], withPassword: [], canStorePasswords: true })
@@ -88,9 +95,14 @@ export function App() {
   const [showLog, setShowLog] = useState(true)
   const [quick, setQuick] = useState({ host: '', user: '', password: '', port: '' })
   const [siteMenu, setSiteMenu] = useState<{ x: number; y: number } | null>(null)
+  const [terminal, setTerminal] = useState<(TerminalRequest & { label: string }) | null>(null)
+  const [terminalStatus, setTerminalStatus] = useState<TerminalStatus>('disconnected')
+  const [terminalActive, setTerminalActive] = useState(false)
+  const [terminalMax, setTerminalMax] = useState(false)
   const localLogID = useRef(0)
 
   const connected = conn.state === 'connected'
+  const canTerminal = connected && conn.site?.serverProtocol === 'sftp'
 
   // MARK: Messages and prompts
 
@@ -311,6 +323,31 @@ export function App() {
     api.rawCommand(cmd).then((r) => addLog('response', r)).catch(() => undefined)
   }
 
+  /** Shows the terminal; with `reuse`, a running shell changes to `dir` instead of a new one starting. */
+  const openTerminal = (dir: string | null, reuse: boolean) => {
+    if (!canTerminal || !conn.site) return addLog('error', 'The terminal needs a connection to an SFTP site.')
+    const label = `${effectiveUser(conn.site)}@${conn.site.host}`
+    // A running shell on another server is replaced rather than sent a cd.
+    const same = reuse && terminal?.label === label && terminalStatus === 'connected'
+    setTerminal((t) => ({ key: (t?.key ?? 0) + 1, dir, reuse: same, label }))
+    setTerminalActive(true)
+  }
+
+  /** Shows the terminal tab, starting a shell when none is open and the site allows one. */
+  const showTerminal = (show: boolean) => {
+    if (show && !terminal && canTerminal) openTerminal(remote?.path ?? null, false)
+    else setTerminalActive(show)
+  }
+
+  const toggleTerminal = () => showTerminal(!terminalActive)
+
+  const closeTerminal = () => {
+    setTerminal(null)
+    setTerminalActive(false)
+    setTerminalMax(false)
+    setTerminalStatus('disconnected')
+  }
+
   const toggleSync = () => {
     if (syncBase) setSyncBase(null)
     else if (connected && local && remote) setSyncBase({ local: local.path, remote: remote.path })
@@ -341,9 +378,20 @@ export function App() {
       case 'toggleCompare': return setCompare((c) => !c)
       case 'toggleSync': return toggleSync()
       case 'toggleLog': return setShowLog((s) => !s)
+      case 'toggleTerminal': return toggleTerminal()
     }
   }
   useEffect(() => api.onMenu((a) => runMenu.current(a)), [])
+  // Ctrl+` is also handled here: keys typed into the terminal do not always reach the native menu.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.metaKey || e.altKey || e.code !== 'Backquote') return
+      e.preventDefault()
+      runMenu.current('toggleTerminal')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // MARK: Derived state
 
@@ -421,6 +469,16 @@ export function App() {
         void navigator.clipboard.writeText(urls.join('\n'))
       },
     },
+    {
+      label: 'Open Terminal Here',
+      icon: SquareTerminal,
+      disabled: !canTerminal,
+      onClick: () => {
+        if (!remote) return
+        const folder = entries.length === 1 && entries[0].isDirectory ? RemotePath.join(remote.path, entries[0].name) : remote.path
+        openTerminal(folder, true)
+      },
+    },
     { label: 'Refresh', icon: RefreshCw, onClick: refreshRemote },
   ]
 
@@ -440,7 +498,7 @@ export function App() {
   const statusSite = conn.site
 
   return (
-    <div className="app">
+    <div className={`app${terminalActive && terminalMax ? ' terminal-max' : ''}`}>
       <header className="toolbar">
         <img className="brand" src="./icon.png" alt="" width={22} height={22} />
         <div className="group">
@@ -465,6 +523,7 @@ export function App() {
           <IconButton icon={FolderSync} label="Synchronized browsing" active={!!syncBase} disabled={!connected} onClick={toggleSync} />
           <IconButton icon={settings?.showHiddenFiles ? Eye : EyeOff} label="Show hidden files" active={settings?.showHiddenFiles} onClick={() => runMenu.current('toggleHidden')} />
           <IconButton icon={ScrollText} label="Message log" active={showLog} onClick={() => setShowLog((s) => !s)} />
+          <IconButton icon={SquareTerminal} label="Terminal" shortcut="Ctrl+`" active={terminalActive} onClick={toggleTerminal} />
         </div>
         <span className="spacer" />
         <IconButton icon={Settings} label="Settings" onClick={() => setDialog('settings')} />
@@ -482,7 +541,7 @@ export function App() {
         <label><KeyRound size={14} /><input type="password" placeholder="Password" value={quick.password} onChange={(e) => setQuick({ ...quick, password: e.target.value })} /></label>
         <label className="port"><input placeholder="Port" value={quick.port} inputMode="numeric" onChange={(e) => setQuick({ ...quick, port: e.target.value.replace(/\D/g, '') })} /></label>
         <button type="submit" className="primary" disabled={!quick.host || conn.state === 'connecting'}>
-          <PlugZap size={15} /> Connect
+          <PlugZap /> Connect
         </button>
       </form>
 
@@ -552,6 +611,43 @@ export function App() {
         siteName={siteName}
         onRemove={(ids) => void api.removeTransfers(ids)}
         onRetry={(ids) => void api.retryTransfers(ids)}
+        maximized={terminalMax}
+        terminal={{
+          active: terminalActive,
+          status: terminal ? terminalStatus : null,
+          label: terminal?.label ?? '',
+          select: showTerminal,
+          actions: terminal && (
+            <>
+              <IconButton icon={RotateCw} label="Restart terminal" disabled={!canTerminal} onClick={() => openTerminal(terminal.dir, false)} />
+              <IconButton icon={terminalMax ? Minimize2 : Maximize2} label={terminalMax ? 'Restore' : 'Maximize'} onClick={() => setTerminalMax((m) => !m)} />
+              <IconButton icon={X} label="Close terminal" onClick={closeTerminal} />
+            </>
+          ),
+          view: terminal ? (
+            <Suspense>
+              <TerminalView request={terminal} visible={terminalActive} onStatus={setTerminalStatus} />
+            </Suspense>
+          ) : (
+            terminalActive && (
+              <div className="term-panel term-empty">
+                <SquareTerminal size={24} />
+                <p>
+                  {canTerminal
+                    ? 'Open a shell on the server, in the folder you are viewing.'
+                    : connected
+                      ? 'The terminal needs an SFTP (SSH) site. FTP servers do not offer a shell.'
+                      : 'Connect to an SFTP site to open a terminal on the server.'}
+                </p>
+                {canTerminal && (
+                  <button type="button" className="primary" onClick={() => openTerminal(remote?.path ?? null, false)}>
+                    <SquareTerminal size={14} /> Open Terminal
+                  </button>
+                )}
+              </div>
+            )
+          ),
+        }}
       />
 
       <footer className="statusbar">

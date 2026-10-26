@@ -4,7 +4,7 @@ import path from 'node:path'
 import { dialog, shell, type BrowserWindow } from 'electron'
 import type { ConnectResult, InvokeMethod, QueueUpdate } from '../shared/api'
 import { Events } from '../shared/api'
-import { displayAddress, effectivePort, InputError, parseQuickConnect } from '../shared/site'
+import { displayAddress, effectivePort, effectiveUser, InputError, parseQuickConnect } from '../shared/site'
 import type {
   AppSettings,
   ConnectionInfo,
@@ -27,6 +27,7 @@ import { KnownHostsStore } from './store/knownHosts'
 import { ARCHIVE_EXTENSION, decodeArchive, encodeArchive } from './store/siteArchive'
 import { SiteStore, type SecretCipher } from './store/siteStore'
 import { QueueStore, SettingsStore } from './store/settingsStore'
+import { Terminals } from './terminal'
 import { TransferManager } from './transfers'
 
 type Handler = (...args: never[]) => unknown
@@ -48,6 +49,15 @@ export class Controller implements Prompter {
   private logTimer: NodeJS.Timeout | null = null
   private logID = 0
   private edits = new EditWatcher(this)
+  private terminals = new Terminals({
+    connect: async (site) => {
+      const s = this.makeSession(site, await this.passwordFor(site), true)
+      if (!(s instanceof SFTPSession)) throw new SessionError('The terminal needs an SFTP (SSH) site.')
+      await s.connect()
+      return s
+    },
+    send: (channel, payload) => this.send(channel, payload),
+  })
 
   constructor(
     dataDir: string,
@@ -127,6 +137,10 @@ export class Controller implements Prompter {
       removeTransfers: (ids: string[]) => this.transfers.remove(ids),
       retryTransfers: (ids: string[]) => this.transfers.retry(ids),
       clearFinished: () => this.transfers.clearFinished(),
+      terminalOpen: (cols: number, rows: number, dir: string | null) => this.openTerminal(cols, rows, dir),
+      terminalInput: (id: number, data: string) => this.terminals.write(id, data),
+      terminalResize: (id: number, cols: number, rows: number) => this.terminals.resize(id, cols, rows),
+      terminalClose: (id: number) => this.terminals.close(id),
       answerPrompt: (id: number, value: unknown) => {
         this.pendingPrompts.get(id)?.(value)
         this.pendingPrompts.delete(id)
@@ -438,6 +452,19 @@ export class Controller implements Prompter {
     if (site) this.transfers.enqueueEditedUpload(local, remote, site)
   }
 
+  private async openTerminal(cols: number, rows: number, dir: string | null): Promise<number> {
+    const site = this.requireSite()
+    if (site.serverProtocol !== 'sftp') throw new SessionError('The terminal needs an SFTP (SSH) site.')
+    try {
+      const id = await this.terminals.open(site, cols, rows, dir)
+      this.log('status', `Terminal opened: ${effectiveUser(site)}@${site.host}`)
+      return id
+    } catch (e) {
+      this.log('error', `Terminal: ${errorMessage(e)}`)
+      throw e
+    }
+  }
+
   private transferFinished(item: TransferItem): void {
     if (item.direction === 'download') this.send(Events.refresh, ['local', path.dirname(item.localPath)])
     else this.send(Events.refresh, ['remote', RemotePath.parent(item.remotePath)])
@@ -447,6 +474,7 @@ export class Controller implements Prompter {
     this.transfers.persist()
     this.transfers.closeIdle()
     this.session?.close()
+    this.terminals.closeAll()
     this.edits.stop()
   }
 

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import { pipeline } from 'node:stream/promises'
-import { Client, utils, type ConnectConfig, type FileEntryWithStats, type SFTPWrapper, type Stats } from 'ssh2'
+import { Client, utils, type ClientChannel, type ConnectConfig, type FileEntryWithStats, type SFTPWrapper, type Stats } from 'ssh2'
 import { effectivePort, effectiveUser } from '../../shared/site'
 import type { FileEntry, Site } from '../../shared/types'
 import { Permissions, RemotePath } from '../../shared/util'
@@ -236,6 +236,15 @@ export class SFTPSession implements RemoteSession {
 
   async rawCommand(): Promise<string> {
     throw new SessionError('Custom commands are only supported with FTP.')
+  }
+
+  /** Interactive login shell on a PTY, for the terminal. */
+  shell(cols: number, rows: number): Promise<ClientChannel> {
+    return new Promise((resolve, reject) => {
+      this.client.shell({ term: 'xterm-256color', cols, rows }, (err, channel) =>
+        err ? reject(new SessionError(`Could not start a shell: ${err.message}`)) : resolve(channel),
+      )
+    })
   }
 
   async download(remote: string, local: string, offset: number, signal: AbortSignal, progress: ProgressHandler): Promise<void> {

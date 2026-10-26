@@ -193,6 +193,54 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
         throw RemoteSSHError.unsupported("Custom commands are only supported with FTP.")
     }
 
+    /// Runs an interactive login shell on a PTY (the terminal) until it exits or `shell.close()` is
+    /// called; `output` receives everything it prints. When `dir` is not the login directory the
+    /// shell changes to it first. Returns how the shell ended ("exit 1", "closed").
+    public func runShell(_ shell: RemoteShell, cols: Int, rows: Int, startIn dir: String?,
+                         output: @escaping @Sendable (Data) -> Void) async throws -> String {
+        guard let client else { throw RemoteSSHError.notConnected }
+        if let dir, dir != (try? await homeDirectory()) {
+            // The leading space keeps the command out of shell history (HISTCONTROL=ignorespace).
+            shell.write(" cd -- \(shellQuote(dir)) && clear\n")
+        }
+        let request = SSHChannelRequestEvent.PseudoTerminalRequest(
+            wantReply: true, term: "xterm-256color",
+            terminalCharacterWidth: cols, terminalRowHeight: rows,
+            terminalPixelWidth: 0, terminalPixelHeight: 0,
+            terminalModes: SSHTerminalModes([:])
+        )
+        var ending = "closed"
+        do {
+            try await client.withPTY(request) { inbound, outbound in
+                ending = try await withThrowingTaskGroup(of: String?.self) { group in
+                    group.addTask {
+                        for await operation in shell.operations { try await operation(outbound) }
+                        return nil
+                    }
+                    group.addTask {
+                        do {
+                            for try await chunk in inbound {
+                                switch chunk {
+                                case .stdout(let bytes), .stderr(let bytes): output(Data(bytes.readableBytesView))
+                                }
+                            }
+                        } catch let failed as SSHClient.CommandFailed {
+                            return "exit \(failed.exitCode)"
+                        }
+                        return "closed"
+                    }
+                    // The shell exiting or close() (which ends the operations) ends the session.
+                    let first = try await group.next() ?? nil
+                    group.cancelAll()
+                    return first ?? "closed"
+                }
+            }
+        } catch let error as ChannelError where error == .alreadyClosed {
+            // The server closed the channel when the shell exited; withPTY's own close() then fails.
+        }
+        return ending
+    }
+
     private func wrap(_ body: @escaping () async throws -> Void) async throws {
         do { try await body() } catch let e as RemoteSSHError { throw e } catch {
             log(LogLine(.error, String(describing: error)))

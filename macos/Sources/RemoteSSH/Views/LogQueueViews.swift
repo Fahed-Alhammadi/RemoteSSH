@@ -71,50 +71,77 @@ struct QueueView: View {
 
     var body: some View {
         let t = model.transfers
+        let showingTerminal = model.showTerminal
         VStack(spacing: 0) {
-            Picker("", selection: $tab) {
-                Label("Queued (\(t.queued.count))", systemImage: "tray.full").tag(0)
-                Label("Failed (\(t.failed.count))", systemImage: "exclamationmark.triangle").tag(1)
-                Label("Done (\(t.finished.count))", systemImage: "checkmark.circle").tag(2)
+            HStack(spacing: 8) {
+                Picker("", selection: Binding(get: { showingTerminal ? Self.terminalTab : tab }, set: select)) {
+                    Label("Queued (\(t.queued.count))", systemImage: "tray.full").tag(0)
+                    Label("Failed (\(t.failed.count))", systemImage: "exclamationmark.triangle").tag(1)
+                    Label("Done (\(t.finished.count))", systemImage: "checkmark.circle").tag(2)
+                    Label("Terminal", systemImage: "terminal").tag(Self.terminalTab)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                Spacer(minLength: 0)
+                if showingTerminal, let terminal = model.terminal { TerminalHeader(terminal: terminal) }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .padding(6)
 
-            Table(rows, selection: $selection) {
-                TableColumn("") { item in
-                    Image(systemName: item.direction == .upload ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
-                        .foregroundStyle(item.direction == .upload ? Theme.upload : Theme.download)
-                        .help(item.direction == .upload ? "Upload" : "Download")
-                }
-                .width(22)
-                TableColumn("Local File") { item in
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(item.fileName).lineLimit(1)
-                        Text(item.localPath).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    }
-                }
-                .width(min: 150, ideal: 260)
-                TableColumn("Remote File") { item in
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(model.site(for: item.siteID)?.host ?? "").font(.caption2).foregroundStyle(.secondary)
-                        Text(item.remotePath).lineLimit(1).truncationMode(.middle)
-                    }
-                }
-                .width(min: 150, ideal: 260)
-                TableColumn("Size") { item in Text(Format.bytes(item.size)).monospacedDigit() }
-                    .width(70)
-                TableColumn("Status") { item in status(item) }
-                    .width(min: 120, ideal: 200)
+            if showingTerminal {
+                if let terminal = model.terminal { TerminalPanel(terminal: terminal) } else { TerminalPlaceholder() }
+            } else {
+                transferTable
             }
-            .contextMenu(forSelectionType: TransferItem.ID.self) { ids in
-                if tab == 1 { Button("Retry", systemImage: "arrow.clockwise") { t.retry(ids) } }
-                if tab == 0 { Button("Cancel", systemImage: "xmark.circle") { t.cancel(ids) } }
-                Button("Remove", systemImage: "minus.circle") { t.remove(ids) }
-                Divider()
-                Button("Clear Completed", systemImage: "checkmark.circle") { t.clearFinished() }
-                Button(t.processing ? "Pause Queue" : "Resume Queue", systemImage: t.processing ? "pause.circle" : "play.circle") { t.toggleProcessing() }
+        }
+    }
+
+    private static let terminalTab = 3
+
+    private func select(_ value: Int) {
+        if value == Self.terminalTab {
+            model.showTerminalTab(true)
+        } else {
+            tab = value
+            model.showTerminal = false
+        }
+    }
+
+    private var transferTable: some View {
+        let t = model.transfers
+        return Table(rows, selection: $selection) {
+            TableColumn("") { item in
+                Image(systemName: item.direction == .upload ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                    .foregroundStyle(item.direction == .upload ? Theme.upload : Theme.download)
+                    .help(item.direction == .upload ? "Upload" : "Download")
             }
+            .width(22)
+            TableColumn("Local File") { item in
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(item.fileName).lineLimit(1)
+                    Text(item.localPath).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            .width(min: 150, ideal: 260)
+            TableColumn("Remote File") { item in
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(model.site(for: item.siteID)?.host ?? "").font(.caption2).foregroundStyle(.secondary)
+                    Text(item.remotePath).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            .width(min: 150, ideal: 260)
+            TableColumn("Size") { item in Text(Format.bytes(item.size)).monospacedDigit() }
+                .width(70)
+            TableColumn("Status") { item in status(item) }
+                .width(min: 120, ideal: 200)
+        }
+        .contextMenu(forSelectionType: TransferItem.ID.self) { ids in
+            if tab == 1 { Button("Retry", systemImage: "arrow.clockwise") { t.retry(ids) } }
+            if tab == 0 { Button("Cancel", systemImage: "xmark.circle") { t.cancel(ids) } }
+            Button("Remove", systemImage: "minus.circle") { t.remove(ids) }
+            Divider()
+            Button("Clear Completed", systemImage: "checkmark.circle") { t.clearFinished() }
+            Button(t.processing ? "Pause Queue" : "Resume Queue", systemImage: t.processing ? "pause.circle" : "play.circle") { t.toggleProcessing() }
         }
     }
 
