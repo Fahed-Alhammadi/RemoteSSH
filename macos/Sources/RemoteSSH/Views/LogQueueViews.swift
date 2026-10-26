@@ -64,47 +64,14 @@ private struct LogRow: View {
     }
 }
 
-struct QueueView: View {
+/// Transfers tab of the bottom panel: Queued (0), Failed (1) or Done (2), chosen by the panel's filter.
+struct TransfersList: View {
     @Environment(AppModel.self) private var model
-    @State private var tab = 0
+    let tab: Int
     @State private var selection: Set<TransferItem.ID> = []
 
     var body: some View {
-        let t = model.transfers
-        let showingTerminal = model.showTerminal
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Picker("", selection: Binding(get: { showingTerminal ? Self.terminalTab : tab }, set: select)) {
-                    Label("Queued (\(t.queued.count))", systemImage: "tray.full").tag(0)
-                    Label("Failed (\(t.failed.count))", systemImage: "exclamationmark.triangle").tag(1)
-                    Label("Done (\(t.finished.count))", systemImage: "checkmark.circle").tag(2)
-                    Label("Terminal", systemImage: "terminal").tag(Self.terminalTab)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                Spacer(minLength: 0)
-                if showingTerminal, let terminal = model.terminal { TerminalHeader(terminal: terminal) }
-            }
-            .padding(6)
-
-            if showingTerminal {
-                if let terminal = model.terminal { TerminalPanel(terminal: terminal) } else { TerminalPlaceholder() }
-            } else {
-                transferTable
-            }
-        }
-    }
-
-    private static let terminalTab = 3
-
-    private func select(_ value: Int) {
-        if value == Self.terminalTab {
-            model.showTerminalTab(true)
-        } else {
-            tab = value
-            model.showTerminal = false
-        }
+        transferTable
     }
 
     private var transferTable: some View {

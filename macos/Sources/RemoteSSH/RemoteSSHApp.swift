@@ -71,9 +71,9 @@ struct RemoteSSHApp: App {
             Button("Clear Completed", systemImage: "checkmark.circle") { model.transfers.clearFinished() }
         }
         CommandGroup(after: .toolbar) {
-            Toggle("Message Log", isOn: Binding(get: { model.showLog }, set: { model.showLog = $0 }))
+            Toggle("Activity", isOn: Binding(get: { model.dockOpen && model.dockPanel == .activity }, set: { _ in model.showDock(.activity, toggle: true) }))
                 .keyboardShortcut("l", modifiers: [.command, .option])
-            Toggle("Transfer Queue", isOn: Binding(get: { model.showQueue }, set: { model.showQueue = $0 }))
+            Toggle("Transfers", isOn: Binding(get: { model.dockOpen && model.dockPanel == .transfers }, set: { _ in model.showDock(.transfers, toggle: true) }))
                 .keyboardShortcut("q", modifiers: [.command, .option])
             Toggle("Directory Comparison", isOn: Binding(get: { model.compareDirectories }, set: { model.compareDirectories = $0 }))
             Toggle("Synchronized Browsing", isOn: Binding(get: { model.synchronizedBrowsing }, set: { _ in model.toggleSynchronizedBrowsing() }))

@@ -4,6 +4,13 @@ import Observation
 import RemoteSSHCore
 import UniformTypeIdentifiers
 
+/// Tabs of the bottom panel.
+enum DockPanel: Hashable {
+    case activity
+    case transfers
+    case terminal
+}
+
 enum ConnectionState: Equatable {
     case disconnected
     case connecting
@@ -44,17 +51,29 @@ final class AppModel {
     var localEntries: [FileEntry] = []
 
     // View options
-    var showLog = true
-    var showQueue = true
     var compareDirectories = false
     var synchronizedBrowsing = false
     @ObservationIgnored var syncBase: (local: String, remote: String)?
 
     var showSiteManager = false
 
-    // Terminal (a tab of the queue area once opened)
+    // Bottom panel: Activity, Transfers, Terminal
+    var dockPanel: DockPanel = .activity
+    var dockOpen = true
+    var terminalMaximized = false
     var terminal: TerminalController?
-    var showTerminal = false
+
+    var showTerminal: Bool { dockOpen && dockPanel == .terminal }
+
+    /// Shows a panel tab; with `toggle`, choosing the open tab again hides the panel.
+    func showDock(_ panel: DockPanel, toggle: Bool = false) {
+        if toggle && dockOpen && dockPanel == panel {
+            dockOpen = false
+        } else {
+            dockPanel = panel
+            dockOpen = true
+        }
+    }
 
     @ObservationIgnored lazy var transfers = TransferManager(model: self)
     @ObservationIgnored lazy var editWatcher = EditWatcher(model: self)

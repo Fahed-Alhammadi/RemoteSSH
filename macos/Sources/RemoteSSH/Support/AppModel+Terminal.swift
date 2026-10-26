@@ -25,17 +25,17 @@ extension AppModel {
             }
             status("Terminal opened: \(site.effectiveUser)@\(site.host)")
         }
-        showQueue = true
-        showTerminal = true
+        showDock(.terminal)
     }
 
     /// Shows the Terminal tab, starting a shell when none is open and the site allows one.
     func showTerminalTab(_ show: Bool) {
         if show, terminal == nil, canOpenTerminal {
             openTerminal(in: remotePath.isEmpty ? nil : remotePath, reuse: false)
-        } else {
-            if show { showQueue = true }
-            showTerminal = show
+        } else if show {
+            showDock(.terminal)
+        } else if dockPanel == .terminal {
+            dockOpen = false
         }
     }
 
@@ -50,6 +50,7 @@ extension AppModel {
     func closeTerminal() {
         terminal?.close()
         terminal = nil
-        showTerminal = false
+        terminalMaximized = false
+        if dockPanel == .terminal { dockPanel = .activity }
     }
 }

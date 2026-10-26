@@ -55,19 +55,14 @@ enum Theme {
     }
 }
 
-/// Rounded "Local" / "Remote" label at the start of each pane header.
-struct PaneChip: View {
-    let title: String
-    let icon: String
-
-    var body: some View {
-        Label(title, systemImage: icon)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(Theme.accent)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Theme.accentSoft, in: Capsule())
-            .fixedSize()
+/// Pane header title ("Local" / "Remote"): accent icon, semibold text.
+struct PaneTitleStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon.foregroundStyle(Theme.accent)
+            configuration.title.fontWeight(.semibold)
+        }
+        .fixedSize()
     }
 }
 

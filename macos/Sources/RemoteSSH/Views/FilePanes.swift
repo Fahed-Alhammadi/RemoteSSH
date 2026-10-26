@@ -137,7 +137,7 @@ struct LocalPane: View {
     var body: some View {
         VStack(spacing: 0) {
             PathBar(title: "Local", icon: "laptopcomputer", path: model.localPath, enabled: true,
-                    submit: { model.navigateLocal(to: $0) }, up: model.navigateLocalUp)
+                    submit: { model.navigateLocal(to: $0) }, up: model.navigateLocalUp, refresh: model.refreshLocal)
             Divider()
             FileTable(
                 entries: model.localEntries,
@@ -208,7 +208,8 @@ struct RemotePane: View {
         VStack(spacing: 0) {
             PathBar(title: "Remote", icon: "server.rack", path: model.remotePath, enabled: connected,
                     submit: { path in Task { await model.navigateRemote(to: path) } },
-                    up: { Task { await model.navigateRemote(to: RemotePath.parent(of: model.remotePath)) } })
+                    up: { Task { await model.navigateRemote(to: RemotePath.parent(of: model.remotePath)) } },
+                    refresh: model.refreshRemote)
             Divider()
             ZStack {
                 FileTable(
@@ -228,27 +229,24 @@ struct RemotePane: View {
                             .font(.system(size: 22, weight: .medium))
                             .foregroundStyle(Theme.accent)
                             .frame(width: 52, height: 52)
-                            .background(.background, in: RoundedRectangle(cornerRadius: 14))
-                            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.separator))
+                            .background(.background, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator))
                             .accessibilityHidden(true)
-                        Text(connecting ? "Connecting…" : "Not Connected").font(.headline).padding(.top, 4)
+                        Text(connecting ? "Connecting…" : "Not connected").font(.headline).padding(.top, 4)
                         if !connecting {
-                            Text("Use Quickconnect or the Site Manager to connect to a server.")
+                            Text("Pick a site on the left, or type an address above.")
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
-                            Button("Open Site Manager", systemImage: "square.stack.3d.up") { model.showSiteManager = true }
-                                .buttonStyle(.borderedProminent)
-                                .padding(.top, 4)
+                            if model.sites.isEmpty {
+                                Button("Add a Site", systemImage: "plus") { model.showSiteManager = true }
+                                    .buttonStyle(.borderedProminent)
+                                    .padding(.top, 4)
+                            }
                         }
                     }
                     .padding(20)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background {
-                        ZStack {
-                            Rectangle().fill(.background)
-                            RadialGradient(colors: [Theme.accentSoft, .clear], center: .center, startRadius: 0, endRadius: 260)
-                        }
-                    }
+                    .background(Color(nsColor: .underPageBackgroundColor))
                 } else if model.remoteBusy {
                     ProgressView().controlSize(.small)
                 }
@@ -321,15 +319,16 @@ struct PathBar: View {
     let enabled: Bool
     let submit: (String) -> Void
     let up: () -> Void
+    let refresh: () -> Void
     @State private var text = ""
 
     var body: some View {
-        HStack(spacing: 8) {
-            PaneChip(title: title, icon: icon)
-            Button(action: up) { Image(systemName: "arrow.turn.left.up") }
-                .buttonStyle(.borderless)
-                .help("Parent folder")
-                .accessibilityLabel("Parent folder")
+        HStack(spacing: 6) {
+            Label(title, systemImage: icon)
+                .labelStyle(PaneTitleStyle())
+                .padding(.trailing, 6)
+            IconButton("arrow.turn.left.up", "Parent folder", action: up)
+            IconButton("arrow.clockwise", "Refresh", action: refresh)
             TextField("Path", text: $text)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.callout, design: .monospaced))
@@ -338,7 +337,7 @@ struct PathBar: View {
         }
         .disabled(!enabled)
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .frame(height: 44)
         .onAppear { text = path }
         .onChange(of: path) { text = path }
     }
