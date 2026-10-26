@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "RemoteSSH",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     products: [
         .executable(name: "RemoteSSH", targets: ["RemoteSSH"]),
         .library(name: "RemoteSSHCore", targets: ["RemoteSSHCore"]),

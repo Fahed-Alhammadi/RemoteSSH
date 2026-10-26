@@ -12,7 +12,7 @@ RemoteSSH has two code bases that share one feature set and one site file format
 
 | Platform | App | Folder |
 | --- | --- | --- |
-| macOS 14+ | Native SwiftUI app | [`macos/`](macos) |
+| macOS 15+ | Native SwiftUI app | [`macos/`](macos) |
 | Windows 10+ (x64, arm64) | Electron + React app from [`electron/`](electron), packaged by [`windows/`](windows) | [`windows/`](windows) |
 | Linux (x64, arm64) | Electron + React app from [`electron/`](electron), packaged by [`linux/`](linux) | [`linux/`](linux) |
 
@@ -56,7 +56,7 @@ npm run dist:win       # → ../windows/dist/*.exe (works from Windows, macOS or
 
 ### macOS (`macos/`)
 
-You need macOS 14 or later with Xcode or the Xcode Command Line Tools.
+You need macOS 15 or later with Xcode or the Xcode Command Line Tools.
 
 ```bash
 cd macos

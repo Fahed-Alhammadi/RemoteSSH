@@ -82,7 +82,7 @@ async function wireDownloads() {
   }
   if (version) {
     document.getElementById('release-note').textContent =
-      `Version ${version}, for macOS 14+, Windows 10+ and Linux. MIT licensed.`
+      `Version ${version}, for macOS 15+, Windows 10+ and Linux. MIT licensed.`
     document.getElementById('download-lede').textContent =
       `Version ${version} includes all platforms. Pick the file for your system.`
   }
