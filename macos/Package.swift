@@ -16,6 +16,8 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.81.0"),
         // Capped so the package also builds against the macOS 26.x SDK (see CLAUDE.md, "Build").
         .package(url: "https://github.com/apple/swift-collections.git", "1.1.0"..<"1.5.0"),
+        // Capped: swift-log 1.16 needs Swift tools 6.2, but the macos-15 CI runners have Swift 6.1.
+        .package(url: "https://github.com/apple/swift-log.git", "1.5.0"..<"1.16.0"),
         // Terminal emulator view. Pinned: 1.20 is a pre-release and 1.99 previews 2.0's I/O changes.
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.19.0"),
     ],
