@@ -37,6 +37,30 @@ import Testing
         #expect(e[0].group == "group")
     }
 
+    /// A malicious server must not be able to name an entry so that a download writes outside the target folder.
+    @Test func rejectsUnsafeNames() {
+        let text = """
+        -rw-r--r--    1 user     group          10 Jan 15 10:30 ../../.zshrc
+        -rw-r--r--    1 user     group          10 Jan 15 10:30 sub/file
+        -rw-r--r--    1 user     group          10 Jan 15 10:30 ok..name
+        type=file;size=1; ..
+        type=file;size=1; ../evil
+        """
+        var rejected: [String] = []
+        let e = ListingParser.parse(text) { rejected.append($0) }
+        #expect(e.map(\.name) == ["ok..name"])
+        #expect(rejected == ["../../.zshrc", "sub/file", "../evil"])
+        #expect(!FileEntry.isSafeName("a\0b"))
+        #expect(!FileEntry.isSafeName(""))
+        #expect(FileEntry.isSafeName(".hidden"))
+    }
+
+    @Test func ftpCommandsRejectLineBreaks() throws {
+        try FTPSession.validate(["RNFR /a b", "RNTO /c"])
+        #expect(throws: RemoteSSHError.self) { try FTPSession.validate(["RNTO /x\r\nDELE /important"]) }
+        #expect(throws: RemoteSSHError.self) { try FTPSession.validate(["MKD /a\nb"]) }
+    }
+
     @Test func testDOS() {
         let text = """
         01-15-24  10:30AM       <DIR>          wwwroot
@@ -90,6 +114,19 @@ import Testing
         #expect(RemotePath.normalize("/a/./b/../c") == "/a/c")
     }
 
+    /// Synchronized browsing maps whole path components only.
+    @Test func testRebase() {
+        #expect(RemotePath.rebase("/www/img", from: "/www", to: "/Users/me/site") == "/Users/me/site/img")
+        #expect(RemotePath.rebase("/www", from: "/www/", to: "/l") == "/l")
+        #expect(RemotePath.rebase("/www2/img", from: "/www", to: "/l") == nil)
+        #expect(RemotePath.rebase("/a/b", from: "/", to: "/l") == "/l/a/b")
+    }
+
+    @Test func testURLEncoded() {
+        #expect(RemotePath.urlEncoded("/dir/a b#1?.txt") == "/dir/a%20b%231%3F.txt")
+        #expect(RemotePath.urlEncoded("/100%") == "/100%25")
+    }
+
     @Test func testSiteArchiveRoundTrip() throws {
         let a = Site(name: "Prod", folder: "Work", host: "sftp.example.com", serverProtocol: .sftp, user: "alice")
         let b = Site(name: "Public", host: "ftp.example.org", serverProtocol: .ftp, encryption: .requireExplicit, logonType: .anonymous)
@@ -112,6 +149,13 @@ import Testing
         let data = try SiteArchive(sites: [Site(host: "h")]).encoded()
         #expect(!String(decoding: data, as: UTF8.self).contains("passwords"))
         #expect(try SiteArchive.decode(data).importable().passwords.isEmpty)
+    }
+
+    @Test func testSiteArchiveAcceptsFractionalSeconds() throws {
+        let json = #"{"format":"remotessh.sites","version":1,"exportedAt":"2026-01-01T00:00:00.123Z","sites":[]}"#
+        #expect(try SiteArchive.decode(Data(json.utf8)).sites.isEmpty)
+        let plain = #"{"format":"remotessh.sites","version":1,"exportedAt":"2026-01-01T00:00:00Z","sites":[]}"#
+        #expect(try SiteArchive.decode(Data(plain.utf8)).exportedAt == Date(timeIntervalSince1970: 1_767_225_600))
     }
 
     @Test func testSiteArchiveRejectsForeignFiles() {

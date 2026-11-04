@@ -27,7 +27,12 @@ final class AppModel {
     @ObservationIgnored let knownHosts = KnownHostsStore()
 
     var settings = AppSettings.load() {
-        didSet { if settings != oldValue { settings.save() } }
+        didSet {
+            guard settings != oldValue else { return }
+            settings.save()
+            // Settings → "Highlight differences" takes effect right away, not only at the next launch.
+            if settings.showDirectoryComparison != oldValue.showDirectoryComparison { compareDirectories = settings.showDirectoryComparison }
+        }
     }
     var sites: [Site] = []
     /// Quickconnect sites live only in memory.
@@ -42,6 +47,8 @@ final class AppModel {
     var connection: ConnectionState = .disconnected
     var currentSite: Site?
     @ObservationIgnored var session: RemoteSession?
+    /// Bumped by every connect and disconnect, so a slower, superseded connection attempt is dropped.
+    @ObservationIgnored var connectGeneration = 0
     var remotePath = ""
     var remoteEntries: [FileEntry] = []
     var remoteBusy = false

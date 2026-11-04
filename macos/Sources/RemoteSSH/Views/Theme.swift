@@ -9,7 +9,11 @@ enum Theme {
     static let folder = adaptive(light: 0x3B82F6, dark: 0x60A5FA)
     static let success = adaptive(light: 0x15803D, dark: 0x4ADE80)
     static let warning = adaptive(light: 0xEA580C, dark: 0xFB923C)
-    static let danger = adaptive(light: 0xDC2626, dark: 0xF87171)
+    /// --c-yellow: comparison mark for files that exist only in one pane.
+    static let caution = adaptive(light: 0xCA8A04, dark: 0xFACC15)
+    static let danger = adaptive(light: 0xB91C1C, dark: 0xF87171)
+    /// Text on a filled danger surface (white on the dark-mode red would be 2.8:1).
+    static let onDanger = adaptive(light: 0xFFFFFF, dark: 0x0B1220)
     static let upload = adaptive(light: 0x2563EB, dark: 0x60A5FA)
     static let download = success
 

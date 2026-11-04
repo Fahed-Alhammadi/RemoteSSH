@@ -2,9 +2,10 @@ import { Transform, type TransformCallback } from 'node:stream'
 import type { ChmodAnswer, FileEntry, LogKind, OverwriteAnswer, PromptRequest, Site, TrustAnswer } from '../../shared/types'
 
 export class SessionError extends Error {}
+/** The user cancelled (a transfer, a password prompt, an untrusted host key): never retried. */
 export class CancelledError extends SessionError {
-  constructor() {
-    super('Interrupted by user')
+  constructor(message = 'Interrupted by user') {
+    super(message)
   }
 }
 
@@ -37,6 +38,8 @@ export interface SessionOptions {
   /** Bytes per second, 0 = unlimited. */
   downloadLimit: number
   uploadLimit: number
+  /** "Explicit TLS if available" may not fall back to plain FTP (TLS already worked for this site). */
+  requireTLS?: boolean
 }
 
 export interface RemoteStat {

@@ -15,6 +15,12 @@ struct LogView: View {
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .overlay {
+                if model.log.isEmpty {
+                    Text("No messages yet. Connection activity appears here.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
             .onChange(of: model.log.last?.id) { _, last in
                 if let last { proxy.scrollTo(last, anchor: .bottom) }
             }
@@ -38,6 +44,7 @@ private struct LogRow: View {
             Image(systemName: symbol)
                 .foregroundStyle(color)
                 .frame(width: 14)
+                .accessibilityLabel(line.kind == .error ? "Error" : line.kind.rawValue.capitalized)
             Text(line.text)
                 .foregroundStyle(line.kind == .error ? Theme.danger : .primary)
                 .textSelection(.enabled)
@@ -81,6 +88,7 @@ struct TransfersList: View {
                 Image(systemName: item.direction == .upload ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
                     .foregroundStyle(item.direction == .upload ? Theme.upload : Theme.download)
                     .help(item.direction == .upload ? "Upload" : "Download")
+                    .accessibilityLabel(item.direction == .upload ? "Upload" : "Download")
             }
             .width(22)
             TableColumn("Local File") { item in
@@ -101,6 +109,13 @@ struct TransfersList: View {
                 .width(70)
             TableColumn("Status") { item in status(item) }
                 .width(min: 120, ideal: 200)
+        }
+        .overlay {
+            if rows.isEmpty {
+                // Same copy as the Electron app's empty queue.
+                Text(["Drag files between the panes to transfer them.", "No failed transfers.", "Finished transfers appear here."][min(max(tab, 0), 2)])
+                    .font(.callout).foregroundStyle(.secondary)
+            }
         }
         .contextMenu(forSelectionType: TransferItem.ID.self) { ids in
             if tab == 1 { Button("Retry", systemImage: "arrow.clockwise") { t.retry(ids) } }
@@ -133,9 +148,10 @@ struct TransfersList: View {
             Label("Waiting", systemImage: "clock").foregroundStyle(.secondary)
         case .finished:
             Label(item.error ?? "Done", systemImage: item.error == nil ? "checkmark.circle.fill" : "arrow.uturn.right.circle")
-                .foregroundStyle(item.error == nil ? .green : .secondary)
+                .foregroundStyle(item.error == nil ? Theme.success : .secondary)
         case .failed:
-            Label(item.error ?? "Failed", systemImage: "xmark.octagon.fill").foregroundStyle(.red).lineLimit(2)
+            Label(item.error ?? "Failed", systemImage: "xmark.octagon.fill").foregroundStyle(Theme.danger).lineLimit(2)
+                .help(item.error ?? "Failed")
         }
     }
 }

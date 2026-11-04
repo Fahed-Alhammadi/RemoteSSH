@@ -22,7 +22,7 @@ struct SitesSidebar: View {
                     HStack {
                         Text("Sites")
                         Spacer()
-                        Button { model.showSiteManager = true } label: { Image(systemName: "slider.horizontal.3") }
+                        Button { model.showSiteManager = true } label: { Image(systemName: "square.stack.3d.up") }
                             .buttonStyle(.borderless)
                             .help("Open the Site Manager (⌘S)")
                             .accessibilityLabel("Manage sites")
@@ -61,8 +61,7 @@ struct SitesSidebar: View {
         let active = site.id == model.currentSite?.id && model.connection != .disconnected
         return Button { model.connect(to: site) } label: {
             HStack(spacing: 10) {
-                Image(systemName: site.serverProtocol == .sftp ? "lock" : "server.rack")
-                    .foregroundStyle(site.serverProtocol == .sftp ? Theme.success : site.encryption == .plain ? Theme.warning : Theme.upload)
+                SiteIcon(site: site)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(site.name)
@@ -79,14 +78,36 @@ struct SitesSidebar: View {
                 if active {
                     StatusDot(color: model.connection == .connected ? Theme.success : Theme.warning,
                               pulsing: model.connection == .connecting)
-                        .accessibilityLabel(model.connection == .connected ? "Connected" : "Connecting")
                 }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(active ? (model.connection == .connected ? "Connected" : "Connecting") : "")
         .disabled(site.host.isEmpty)
         .help(site.host.isEmpty ? "This site has no host name" : "Connect to \(site.name)")
         .listRowBackground(active ? RoundedRectangle(cornerRadius: 6).fill(Theme.accentSoft).padding(.horizontal, 6) : nil)
+    }
+}
+
+/// A site's protocol icon (lock = SFTP, server = FTP, tinted by encryption), described in words
+/// for the tooltip and VoiceOver so the encryption is not shown by colour alone.
+struct SiteIcon: View {
+    let site: Site
+
+    var body: some View {
+        Image(systemName: site.serverProtocol == .sftp ? "lock" : "server.rack")
+            .foregroundStyle(site.serverProtocol == .sftp ? Theme.success : site.encryption == .plain ? Theme.warning : Theme.upload)
+            .help(Self.describe(site))
+            .accessibilityLabel(Self.describe(site))
+    }
+
+    static func describe(_ site: Site) -> String {
+        guard site.serverProtocol == .ftp else { return "SFTP" }
+        switch site.encryption {
+        case .plain: return "FTP, not encrypted"
+        case .explicitIfAvailable: return "FTP, encrypted if the server supports TLS"
+        case .requireExplicit, .requireImplicit: return "FTP over TLS"
+        }
     }
 }

@@ -3,13 +3,15 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseListDate } from '../src/main/engine/ftpSession'
+import { localChild, opensAsProgram } from '../src/main/engine/localFS'
+import { CancelledError, type RemoteSession } from '../src/main/engine/session'
 import { fingerprint, KnownHostsStore } from '../src/main/store/knownHosts'
 import { ArchiveError, decodeArchive, encodeArchive } from '../src/main/store/siteArchive'
 import { QueueStore, SettingsStore } from '../src/main/store/settingsStore'
 import { SiteStore, type SecretCipher } from '../src/main/store/siteStore'
-import { uniqueLocalName } from '../src/main/transfers'
-import { displayAddress, effectivePort, makeSite, parseQuickConnect } from '../src/shared/site'
-import type { TransferItem } from '../src/shared/types'
+import { TransferManager, uniqueLocalName } from '../src/main/transfers'
+import { displayAddress, effectivePort, makeSite, normalizeSite, parseQuickConnect } from '../src/shared/site'
+import { defaultSettings, type FileEntry, type PromptRequest, type Site, type TransferItem } from '../src/shared/types'
 import { compareVersions, Permissions, RemotePath, shellQuote } from '../src/shared/util'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'remotessh-test-'))
@@ -183,5 +185,158 @@ describe('shellQuote', () => {
   it('wraps in single quotes and escapes embedded ones', () => {
     expect(shellQuote('/var/www')).toBe(`'/var/www'`)
     expect(shellQuote(`it's $HOME`)).toBe(`'it'\\''s $HOME'`)
+  })
+})
+
+describe('local names from server listings', () => {
+  it('keeps names inside the target folder', () => {
+    expect(localChild('/dl', 'a.txt', path.posix)).toBe('/dl/a.txt')
+    expect(localChild('/dl', 'a\\b', path.posix)).toBe('/dl/a\\b') // a valid POSIX name
+    for (const bad of ['', '.', '..', '../x', 'a/../../x', '/etc/passwd', 'x\0y']) expect(localChild('/dl', bad, path.posix)).toBeNull()
+    for (const bad of ['..\\x', 'a\\b', 'C:x', 'C:\\x']) expect(localChild('C:\\dl', bad, path.win32)).toBeNull()
+  })
+  it('knows which files would run instead of opening in an editor', () => {
+    expect(opensAsProgram('deploy.BAT', 'win32')).toBe(true)
+    expect(opensAsProgram('app.js', 'win32')).toBe(true)
+    expect(opensAsProgram('app.js', 'darwin')).toBe(false)
+    expect(opensAsProgram('run.command', 'darwin')).toBe(true)
+    expect(opensAsProgram('x.desktop', 'linux')).toBe(true)
+    expect(opensAsProgram('index.html', 'win32')).toBe(false)
+  })
+})
+
+describe('normalizeSite', () => {
+  it('replaces wrongly typed fields with defaults', () => {
+    const site = normalizeSite({ id: 'abc', host: null, port: '22', name: 'N', trustInvalidCertificate: 'yes' } as unknown as Partial<Site>)
+    expect(site).toMatchObject({ id: 'ABC', host: '', port: 0, name: 'N', trustInvalidCertificate: false })
+    expect(normalizeSite(null as unknown as Partial<Site>).host).toBe('')
+    expect(Object.keys(normalizeSite({ extra: 1 } as unknown as Partial<Site>))).not.toContain('extra')
+  })
+})
+
+describe('TransferManager', () => {
+  const entry = (name: string): FileEntry => ({ name, isDirectory: false, isLink: false, size: 1, modified: null, permissions: '', owner: '', group: '' })
+
+  /** A session whose downloads wait for `release()` (or the abort signal). */
+  function fakeSession(site: Site) {
+    let release: () => void = () => undefined
+    const session = {
+      site,
+      secure: true,
+      closed: false,
+      connect: async () => undefined,
+      close: () => void Object.assign(session, { closed: true }),
+      pwd: async () => '/',
+      list: async () => [],
+      stat: async () => ({ size: 1, modified: 0 }),
+      download: (_r: string, local: string, _o: number, signal: AbortSignal) =>
+        new Promise<void>((resolve, reject) => {
+          release = () => {
+            fs.writeFileSync(local, 'x')
+            resolve()
+          }
+          signal.addEventListener('abort', () => reject(new CancelledError()), { once: true })
+        }),
+    } as unknown as RemoteSession
+    return { session, release: () => release() }
+  }
+
+  function setup(opts: { connect?: (site: Site) => Promise<RemoteSession>; answers?: unknown[] } = {}) {
+    const dir = tmp()
+    const site = makeSite({ host: 'h' })
+    const fake = fakeSession(site)
+    const errors: string[] = []
+    const prompts: PromptRequest[] = []
+    let connects = 0
+    const manager = new TransferManager(
+      {
+        settings: () => ({ ...defaultSettings, maxConcurrentTransfers: 1 }),
+        site: () => site,
+        connectSession: async (s) => {
+          connects++
+          return opts.connect ? opts.connect(s) : fake.session
+        },
+        browseSession: () => fake.session,
+        prompter: {
+          ask: async (r) => {
+            prompts.push(r)
+            return opts.answers?.shift() ?? null
+          },
+        },
+        status: () => undefined,
+        error: (t) => errors.push(t),
+        publish: () => undefined,
+        transferFinished: () => undefined,
+      },
+      new QueueStore(dir),
+    )
+    return { dir, site, fake, manager, errors, prompts, connects: () => connects }
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 20))
+
+  it('never writes outside the chosen folder for hostile names', async () => {
+    const t = setup()
+    const local = path.join(t.dir, 'dl')
+    await t.manager.enqueueDownload([entry('../evil'), entry('ok.txt')], '/', local, t.site)
+    expect(t.manager.all().map((i) => i.localPath)).toEqual([path.join(local, 'ok.txt')])
+    expect(t.errors[0]).toContain('../evil')
+  })
+
+  it('removes a running transfer once it has stopped', async () => {
+    const t = setup()
+    await t.manager.enqueueDownload([entry('a.txt')], '/', t.dir, t.site)
+    await settle()
+    const [item] = t.manager.all()
+    expect(item.status).toBe('transferring')
+    t.manager.remove([item.id])
+    await settle()
+    expect(t.manager.all()).toEqual([])
+  })
+
+  it('does not retry a connection the user cancelled', async () => {
+    const t = setup({ connect: async () => Promise.reject(new CancelledError('Connection cancelled.')) })
+    await t.manager.enqueueDownload([entry('a.txt')], '/', t.dir, t.site)
+    await settle()
+    expect(t.connects()).toBe(1)
+    expect(t.manager.all()[0]).toMatchObject({ status: 'failed', error: 'Connection cancelled.' })
+  })
+
+  it('stop all also interrupts waiting transfers', async () => {
+    const t = setup()
+    await t.manager.enqueueDownload([entry('a.txt'), entry('b.txt')], '/', t.dir, t.site)
+    await settle()
+    expect(t.manager.all().map((i) => i.status)).toEqual(['transferring', 'queued'])
+    t.manager.stopAll()
+    await settle()
+    expect(t.manager.all().map((i) => [i.status, i.error])).toEqual([
+      ['failed', 'Interrupted by user'],
+      ['failed', 'Interrupted by user'],
+    ])
+  })
+
+  it('"Rename" with the suggested (existing) name never overwrites the target', async () => {
+    const t = setup({ answers: [{ action: 'rename', applyToAll: false, newName: 'a.txt' }] })
+    fs.writeFileSync(path.join(t.dir, 'a.txt'), 'old')
+    await t.manager.enqueueDownload([entry('a.txt')], '/', t.dir, t.site)
+    await settle()
+    t.fake.release()
+    await settle()
+    const [item] = t.manager.all()
+    expect(item.localPath).toBe(path.join(t.dir, 'a (1).txt'))
+    expect(item.status).toBe('finished')
+    expect(fs.readFileSync(path.join(t.dir, 'a.txt'), 'utf8')).toBe('old')
+    expect(fs.readFileSync(path.join(t.dir, 'a (1).txt'), 'utf8')).toBe('x')
+  })
+
+  it('forgets "apply to all" once the batch is done', async () => {
+    const t = setup({ answers: [{ action: 'skip', applyToAll: true }, { action: 'skip', applyToAll: false }] })
+    fs.writeFileSync(path.join(t.dir, 'a.txt'), 'old')
+    fs.writeFileSync(path.join(t.dir, 'b.txt'), 'old')
+    await t.manager.enqueueDownload([entry('a.txt')], '/', t.dir, t.site)
+    await settle()
+    expect(t.prompts).toHaveLength(1)
+    await t.manager.enqueueDownload([entry('b.txt')], '/', t.dir, t.site)
+    await settle()
+    expect(t.prompts).toHaveLength(2) // a later batch is asked again
   })
 })

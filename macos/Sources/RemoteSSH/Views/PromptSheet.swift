@@ -16,7 +16,7 @@ struct PromptSheet: View {
         .padding(20)
         .frame(width: 520)
         .onAppear {
-            if case .text(_, _, let initial) = prompt { text = initial }
+            if case .text(_, _, let initial, _) = prompt { text = initial }
         }
     }
 
@@ -27,7 +27,7 @@ struct PromptSheet: View {
             Label(changed ? "WARNING: Host key mismatch!" : "Unknown host key",
                   systemImage: changed ? "exclamationmark.octagon.fill" : "questionmark.circle.fill")
                 .font(.headline)
-                .foregroundStyle(changed ? .red : .primary)
+                .foregroundStyle(changed ? Theme.danger : .primary)
             Text(changed
                  ? "The server's host key does not match the key that was cached. Someone could be trying to intercept the connection, or the server administrator changed the key."
                  : "The server's host key is unknown. You have no guarantee that the server is the computer you think it is.")
@@ -37,13 +37,14 @@ struct PromptSheet: View {
                 GridRow { Text("Fingerprint:").foregroundStyle(.secondary); Text(fingerprint).font(.system(.body, design: .monospaced)).textSelection(.enabled) }
             }
             Text("Trust this host and carry on connecting? The key will be remembered.").foregroundStyle(.secondary)
-            buttons(ok: "Trust", cancel: "Cancel") { model.prompts.answer(.bool($0)) }
+            // For a changed key, Return cancels: accepting it must be a deliberate click.
+            buttons(ok: changed ? "Trust New Key" : "Trust", cancel: "Cancel", okIsDefault: !changed) { model.prompts.answer(.bool($0)) }
 
         case let .certificate(host, port, reason):
             Label("Unknown certificate", systemImage: "lock.trianglebadge.exclamationmark").font(.headline)
             Text("The server's TLS certificate for \(host):\(String(port)) could not be verified:")
-            Text(reason).font(.system(.body, design: .monospaced)).foregroundStyle(.orange)
-            Text("Connect anyway? The certificate will be trusted for this site from now on.").foregroundStyle(.secondary)
+            Text(reason).font(.system(.body, design: .monospaced)).foregroundStyle(Theme.warning)
+            Text("Connect anyway? The certificate will be trusted for this connection.").foregroundStyle(.secondary)
             buttons(ok: "Connect Anyway", cancel: "Cancel") { model.prompts.answer(.bool($0)) }
 
         case let .password(p):
@@ -53,8 +54,8 @@ struct PromptSheet: View {
                 .onSubmit { model.prompts.answer(.text(text)) }
             buttons(ok: "OK", cancel: "Cancel") { model.prompts.answer(.text($0 ? text : nil)) }
 
-        case let .text(title, message, _):
-            Text(title).font(.headline)
+        case let .text(title, message, _, icon):
+            Label(title, systemImage: icon).font(.headline)
             Text(message)
             TextField("", text: $text).textFieldStyle(.roundedBorder)
                 .onSubmit { model.prompts.answer(.text(text)) }
@@ -90,11 +91,16 @@ struct PromptSheet: View {
         }
     }
 
-    private func buttons(ok: String, cancel: String, _ action: @escaping (Bool) -> Void) -> some View {
+    private func buttons(ok: String, cancel: String, okIsDefault: Bool = true, _ action: @escaping (Bool) -> Void) -> some View {
         HStack {
             Spacer()
-            Button(cancel) { action(false) }.keyboardShortcut(.cancelAction)
-            Button(ok) { action(true) }.keyboardShortcut(.defaultAction)
+            if okIsDefault {
+                Button(cancel) { action(false) }.keyboardShortcut(.cancelAction)
+                Button(ok) { action(true) }.keyboardShortcut(.defaultAction)
+            } else {
+                Button(ok, role: .destructive) { action(true) }
+                Button(cancel) { action(false) }.keyboardShortcut(.defaultAction)
+            }
         }
     }
 }
@@ -139,15 +145,18 @@ struct ChmodSheet: View {
         .onAppear { mode = entries.first?.permissionBits ?? 0o644 }
     }
 
+    private static let bitNames = [4: "Read", 2: "Write", 1: "Execute"]
+
     private func row(_ title: String, shift: Int) -> some View {
         GridRow {
             Text(title)
             ForEach([4, 2, 1], id: \.self) { bit in
-                Toggle("", isOn: Binding(
+                Toggle(Self.bitNames[bit, default: ""], isOn: Binding(
                     get: { mode & (bit << shift) != 0 },
                     set: { on in mode = on ? mode | (bit << shift) : mode & ~(bit << shift) }
                 ))
                 .labelsHidden()
+                .accessibilityLabel("\(title): \(Self.bitNames[bit, default: ""])")
             }
         }
     }

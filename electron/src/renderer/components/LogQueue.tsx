@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   ArrowDownToLine,
   ArrowDownUp,
@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import type { LogKind, LogLine, TransferItem } from '../../shared/types'
 import { formatSize } from '../../shared/util'
+import { useLog } from '../logStore'
 import type { TerminalStatus } from './TerminalView'
 import { ContextMenu, IconButton, useVirtualRows } from './ui'
 
@@ -35,13 +36,25 @@ const timeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute:
 
 export function LogView({ lines }: { lines: LogLine[] }) {
   const virtual = useVirtualRows(lines.length, 20)
-  // Stick to the bottom while the user is already there.
+  // Follow new lines while the user is at the bottom. Measured on scroll, not after an update: a large batch
+  // would otherwise look like the user had scrolled away, and a full log (5000 lines) keeps the same length.
+  const pinned = useRef(true)
   useLayoutEffect(() => {
     const el = virtual.ref.current
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 60) el.scrollTop = el.scrollHeight
-  }, [lines.length, virtual.ref])
+    if (el && pinned.current) el.scrollTop = el.scrollHeight
+  }, [lines, virtual.ref])
   return (
-    <div className="log" ref={virtual.ref} role="log">
+    <div
+      className="log"
+      ref={virtual.setRef}
+      role="log"
+      aria-label="Activity"
+      tabIndex={0}
+      onScroll={(e) => {
+        const el = e.currentTarget
+        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+      }}
+    >
       {lines.length === 0 && <div className="empty small">No messages yet. Connection activity appears here.</div>}
       <div style={{ height: virtual.padTop }} />
       {lines.slice(virtual.start, virtual.end).map((l) => {
@@ -49,8 +62,8 @@ export function LogView({ lines }: { lines: LogLine[] }) {
         return (
           <div key={l.id} className={`log-line ${cls}`}>
             <span className="log-time">{timeFormat.format(l.time)}</span>
-            <Icon size={13} />
-            <span className="log-text">{l.text}</span>
+            <Icon size={13} aria-label={l.kind === 'error' ? 'Error' : undefined} />
+            <span className="log-text" title={l.text}>{l.text}</span>
           </div>
         )
       })}
@@ -75,6 +88,7 @@ const filters: { id: Filter; label: string; icon: typeof Clock }[] = [
 ]
 
 const terminalStatusText: Record<TerminalStatus, string> = { connecting: 'connecting…', connected: '', disconnected: 'ended' }
+const terminalStatusLabel: Record<TerminalStatus, string> = { connecting: 'Connecting', connected: 'Connected', disconnected: 'Ended' }
 
 /** What the dock needs to show the terminal tab. */
 export interface DockTerminal {
@@ -95,7 +109,6 @@ export function Dock(props: {
   onPanel: (panel: DockPanel) => void
   onOpen: (open: boolean) => void
   onResize: (height: number) => void
-  log: LogLine[]
   items: TransferItem[]
   siteName: (id: string) => string
   onRemove: (ids: string[]) => void
@@ -110,32 +123,63 @@ export function Dock(props: {
     g.finished.sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))
     return g
   }, [props.items])
-  const errors = useMemo(() => props.log.filter((l) => l.kind === 'error').length, [props.log])
+  const log = useLog()
+  const errors = useMemo(() => {
+    let n = 0
+    for (const l of log) if (l.kind === 'error') n++
+    return n
+  }, [log])
   const { panel, open, terminal } = props
   const show = (p: DockPanel) => {
     props.onPanel(p)
     props.onOpen(true)
   }
 
-  // Drag the top edge to resize.
+  // Drag the top edge (or focus it and use the arrow keys) to resize.
+  const clampHeight = (h: number) => Math.max(140, Math.min(window.innerHeight - 240, h))
   const startResize = (e: React.PointerEvent) => {
+    if (e.button !== 0) return
     const startY = e.clientY
     const startHeight = props.height
-    const move = (ev: PointerEvent) => props.onResize(Math.min(window.innerHeight - 240, Math.max(140, startHeight + startY - ev.clientY)))
+    const move = (ev: PointerEvent) => props.onResize(clampHeight(startHeight + startY - ev.clientY))
     const up = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+  }
+  const resizeKey = (e: KeyboardEvent) => {
+    const step = e.key === 'ArrowUp' ? 16 : e.key === 'ArrowDown' ? -16 : 0
+    if (!step) return
+    e.preventDefault()
+    props.onResize(clampHeight(props.height + step))
+  }
+  // Left/Right move between the tabs, as in any tab strip.
+  const tabKey = (e: KeyboardEvent) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    const tabs = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')]
+    const i = tabs.indexOf(document.activeElement as HTMLElement)
+    if (i < 0) return
+    e.preventDefault()
+    tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length].focus()
   }
 
   const tab = (id: DockPanel, icon: typeof Clock, label: string, extra?: ReactNode) => {
     const Icon = icon
     const active = open && panel === id
     return (
-      <button type="button" role="tab" aria-selected={active} className={active ? 'active' : ''} onClick={() => (active ? props.onOpen(false) : show(id))}>
-        <Icon size={14} />
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active}
+        className={active ? 'active' : ''}
+        title={active ? `Hide ${label.toLowerCase()}` : undefined}
+        onClick={() => (active ? props.onOpen(false) : show(id))}
+      >
+        <Icon size={15} />
         {label}
         {extra}
       </button>
@@ -147,16 +191,29 @@ export function Dock(props: {
       className={`dock${open ? '' : ' collapsed'}${open && props.maximized ? ' maximized' : ''}`}
       style={open && !props.maximized ? { height: props.height } : undefined}
     >
-      {open && !props.maximized && <div className="dock-resize" onPointerDown={startResize} aria-hidden />}
-      <div className="dock-bar" role="tablist">
-        {tab('activity', ScrollText, 'Activity', errors > 0 && <span className="badge error">{errors}</span>)}
-        {tab('transfers', ArrowDownUp, 'Transfers', groups.queued.length > 0 && <span className="badge">{groups.queued.length}</span>)}
-        {tab('terminal', SquareTerminal, 'Terminal', terminal.status && (
-          <>
-            <span className={`status-dot ${terminal.status}`} aria-hidden />
-            {terminalStatusText[terminal.status] && <span className="muted">{terminalStatusText[terminal.status]}</span>}
-          </>
-        ))}
+      {open && !props.maximized && (
+        <div
+          className="dock-resize"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize panel"
+          aria-valuenow={props.height}
+          tabIndex={0}
+          onPointerDown={startResize}
+          onKeyDown={resizeKey}
+        />
+      )}
+      <div className="dock-bar">
+        <div className="dock-tabs" role="tablist" aria-label="Panels" onKeyDown={tabKey}>
+          {tab('activity', ScrollText, 'Activity', errors > 0 && <span className="badge error" aria-label={`${errors} ${errors === 1 ? 'error' : 'errors'}`}>{errors}</span>)}
+          {tab('transfers', ArrowDownUp, 'Transfers', groups.queued.length > 0 && <span className="badge" aria-label={`${groups.queued.length} queued`}>{groups.queued.length}</span>)}
+          {tab('terminal', SquareTerminal, 'Terminal', terminal.status && (
+            <>
+              <span className={`status-dot ${terminal.status}`} role="img" aria-label={terminalStatusLabel[terminal.status]} title={terminalStatusLabel[terminal.status]} />
+              {terminalStatusText[terminal.status] && <span className="muted">{terminalStatusText[terminal.status]}</span>}
+            </>
+          ))}
+        </div>
         <span className="spacer" />
         {open && panel === 'transfers' && (
           <div className="segmented" role="group" aria-label="Show transfers">
@@ -176,7 +233,7 @@ export function Dock(props: {
         )}
         <IconButton icon={open ? ChevronDown : ChevronUp} label={open ? 'Hide panel' : 'Show panel'} onClick={() => props.onOpen(!open)} />
       </div>
-      {open && panel === 'activity' && <LogView lines={props.log} />}
+      {open && panel === 'activity' && <LogView lines={log} />}
       {open && panel === 'transfers' && (
         <TransferList items={groups[filter]} filter={filter} siteName={props.siteName} onRemove={props.onRemove} onRetry={props.onRetry} />
       )}
@@ -200,9 +257,15 @@ function TransferList(props: {
   return (
     <div
       className="queue-rows"
-      ref={virtual.ref}
+      ref={virtual.setRef}
+      role="listbox"
+      aria-multiselectable
+      aria-label="Transfers"
       tabIndex={0}
-      onKeyDown={(e) => e.key === 'Delete' && ids.length && props.onRemove(ids)}
+      onKeyDown={(e) => {
+        if (!ids.length) return
+        if (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) props.onRemove(ids)
+      }}
       onContextMenu={(e) => {
         e.preventDefault()
         setMenu({ x: e.clientX, y: e.clientY })
@@ -216,6 +279,8 @@ function TransferList(props: {
         return (
           <div
             key={item.id}
+            role="option"
+            aria-selected={selected.has(item.id)}
             className={`queue-row${selected.has(item.id) ? ' selected' : ''}`}
             onMouseDown={(e) => {
               if (e.button === 2 && selected.has(item.id)) return
@@ -225,7 +290,7 @@ function TransferList(props: {
               setSelected(next)
             }}
           >
-            <Dir size={15} className={item.direction} />
+            <Dir size={15} className={item.direction} aria-label={item.direction === 'download' ? 'Download' : 'Upload'} />
             <div className="queue-paths">
               <span className="queue-local" title={item.localPath}>{item.localPath}</span>
               <span className="queue-remote" title={`${props.siteName(item.siteID)} ${item.remotePath}`}>

@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import { isIP } from 'node:net'
-import type { Readable } from 'node:stream'
+import { pipeline as pipe, type Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { TLSSocket } from 'node:tls'
 import { Client, FileType, FTPError, type FileInfo } from 'basic-ftp'
@@ -59,7 +59,10 @@ export class FTPSession implements RemoteSession {
             await this.verifyCertificate()
           } catch (e) {
             if (site.encryption === 'requireExplicit' || !(e instanceof FTPError)) throw e
-            log('status', 'Server does not support FTP over TLS; continuing unencrypted.')
+            if (this.ctx.options.requireTLS) {
+              throw new SessionError('The server refused TLS although it used TLS before in this session; not continuing unencrypted.')
+            }
+            log('error', 'Server does not support FTP over TLS; continuing unencrypted. Your password is sent in plain text.')
           }
         }
       }
@@ -92,7 +95,7 @@ export class FTPSession implements RemoteSession {
       fingerprint: cert.fingerprint256 ?? '',
       reason: String(socket.authorizationError ?? 'The certificate could not be verified.'),
     })
-    if (answer === 'reject') throw new SessionError('The server certificate was not trusted.')
+    if (answer === 'reject') throw new CancelledError('The server certificate was not trusted.')
     if (answer === 'always') this.ctx.trustCertificate({ ...this.site, trustInvalidCertificate: true })
   }
 
@@ -189,9 +192,12 @@ export class FTPSession implements RemoteSession {
       const limit = this.ctx.options.downloadLimit
       if (limit > 0) {
         const throttle = new Throttle(limit)
-        const done = pipeline(throttle, fs.createWriteStream(local, { flags: offset > 0 ? 'r+' : 'w', start: offset }))
-        await this.client.downloadTo(throttle, remote, offset)
-        await done
+        const written = pipeline(throttle, fs.createWriteStream(local, { flags: offset > 0 ? 'r+' : 'w', start: offset }))
+        // Wait for both, so a local write error (disk full) is neither an unhandled rejection nor lets the
+        // next command start while basic-ftp is still busy; the write error is the more useful one.
+        const [download, write] = await Promise.allSettled([this.client.downloadTo(throttle, remote, offset), written])
+        if (write.status === 'rejected') throw write.reason
+        if (download.status === 'rejected') throw download.reason
       } else {
         await this.client.downloadTo(local, remote, offset)
       }
@@ -202,7 +208,9 @@ export class FTPSession implements RemoteSession {
     return this.transfer(signal, progress, offset, async () => {
       const file = fs.createReadStream(local, { start: offset })
       const limit = this.ctx.options.uploadLimit
-      const source: Readable = limit > 0 ? file.pipe(new Throttle(limit)) : file
+      // pipeline (not pipe) forwards a read error (file deleted, no access) to the throttle, which basic-ftp
+      // listens to, and closes the file when the upload fails; with pipe() the error event had no listener.
+      const source: Readable = limit > 0 ? pipe(file, new Throttle(limit), () => undefined) : file
       if (offset > 0) await this.client.appendFrom(source, remote)
       else await this.client.uploadFrom(source, remote)
     })

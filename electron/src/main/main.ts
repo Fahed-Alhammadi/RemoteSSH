@@ -108,7 +108,9 @@ function buildMenu(controller: Controller): Menu {
       label: '&View',
       submenu: [
         { label: 'Show Hidden Files', accelerator: 'CmdOrCtrl+Shift+H', click: send('toggleHidden') },
-        { label: 'Directory Comparison', accelerator: 'CmdOrCtrl+Shift+C', click: send('toggleCompare') },
+        // Ctrl+Shift+C is the terminal's copy on Windows/Linux: there the renderer handles the shortcut
+        // outside the terminal, and the menu only shows it.
+        { label: 'Directory Comparison', accelerator: 'CmdOrCtrl+Shift+C', registerAccelerator: isMac, click: send('toggleCompare') },
         { label: 'Synchronized Browsing', accelerator: 'CmdOrCtrl+Shift+Y', click: send('toggleSync') },
         { label: 'Message Log', accelerator: 'CmdOrCtrl+Shift+L', click: send('toggleLog') },
         { label: 'Terminal', accelerator: 'Ctrl+`', click: send('toggleTerminal') },

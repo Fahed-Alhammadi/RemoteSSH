@@ -25,10 +25,18 @@ export function makeSite(fields: Partial<Site> = {}): Site {
   }
 }
 
-/** Fills in fields missing from older or foreign site JSON. */
+/**
+ * Fills in fields missing from older or foreign site JSON. Fields of the wrong type (e.g. `"host": null`
+ * or `"port": "22"` in a hand-edited `.remotessh` file) get their defaults instead of crashing a connect.
+ */
 export function normalizeSite(raw: Partial<Site>): Site {
-  const site = makeSite(raw)
-  site.id = String(site.id).toUpperCase()
+  const site = makeSite()
+  const fields = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const out = site as unknown as Record<string, unknown>
+  for (const key of Object.keys(site)) {
+    if (typeof fields[key] === typeof out[key]) out[key] = fields[key]
+  }
+  site.id = site.id.toUpperCase()
   return site
 }
 

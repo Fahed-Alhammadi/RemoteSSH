@@ -6,7 +6,7 @@ import { ClipboardPaste, Copy, Eraser, TextSelect } from 'lucide-react'
 import type { TerminalEvent } from '../../shared/api'
 import { errorMessage, RemotePath, shellQuote } from '../../shared/util'
 import { api } from '../api'
-import { DRAG_TYPE, type DragPayload } from './FilePane'
+import { DRAG_TYPE, dragSideType, type DragPayload } from './FilePane'
 import { ContextMenu } from './ui'
 
 export type TerminalStatus = 'connecting' | 'connected' | 'disconnected'
@@ -193,7 +193,7 @@ export function TerminalView(props: {
         e.preventDefault()
         setMenu({ x: e.clientX, y: e.clientY })
       }}
-      onDragOver={(e) => e.dataTransfer.types.includes(DRAG_TYPE) && e.preventDefault()}
+      onDragOver={(e) => e.dataTransfer.types.includes(dragSideType('remote')) && e.preventDefault()}
       onDrop={onDrop}
     >
       <div className="term-host" ref={host} />

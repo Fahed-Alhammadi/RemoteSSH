@@ -43,6 +43,9 @@ export class Terminals {
       channel.stderr.setEncoding('utf8')
       channel.on('data', append)
       channel.stderr.on('data', append)
+      // Without a listener a stream error (e.g. a write racing the remote close) would crash the main process;
+      // the 'close' handler below reports the end either way.
+      channel.on('error', () => undefined)
       channel.on('exit', (code: number | null) => {
         shell.exitCode = code
       })
@@ -64,7 +67,8 @@ export class Terminals {
   }
 
   write(id: number, data: string): void {
-    this.shells.get(id)?.channel.write(data)
+    const channel = this.shells.get(id)?.channel
+    if (channel?.writable) channel.write(data)
   }
 
   resize(id: number, cols: number, rows: number): void {

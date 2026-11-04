@@ -105,6 +105,8 @@ private func exercise(_ session: RemoteSession) async throws {
         let session = SessionFactory.make(site: site, credentials: .init(password: env["RSSH_FTP_PASS"]!), options: .init(),
                                           prompter: prompter, hostKeys: KnownHostsStore(url: tmpURL()), log: { _ in })
         try await exercise(session)
+        // The test server supports AUTH TLS, so "if available" must have negotiated it.
+        #expect(session.isEncrypted == (encryption != .plain))
         // Self-signed test certificate → exactly one trust prompt when TLS is used.
         #expect(prompter.certPrompts == (encryption == .plain ? 0 : 1))
     }

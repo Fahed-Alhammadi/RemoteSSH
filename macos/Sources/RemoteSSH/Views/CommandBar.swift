@@ -33,7 +33,7 @@ struct CommandBar: View {
             .onSubmit(connect)
 
             group {
-                IconButton("arrow.clockwise", "Refresh both panes") { model.refreshLocal(); model.refreshRemote() }
+                IconButton("arrow.clockwise", "Refresh both panes (⇧⌘R)") { model.refreshLocal(); model.refreshRemote() }
                 IconButton("arrow.triangle.2.circlepath", "Reconnect (⌘R)") { model.reconnect() }
                     .disabled(model.currentSite == nil || model.connection == .connecting)
                 IconButton("eject", "Disconnect (⌘D)") { Task { await model.disconnect() } }
@@ -41,20 +41,20 @@ struct CommandBar: View {
             }
             group {
                 IconButton(model.transfers.processing ? "pause.circle" : "play.circle",
-                           model.transfers.processing ? "Pause the transfer queue" : "Resume the transfer queue",
+                           model.transfers.processing ? "Pause the transfer queue (⌘P)" : "Resume the transfer queue (⌘P)",
                            active: !model.transfers.processing) { model.transfers.toggleProcessing() }
-                IconButton("stop.circle", "Stop all transfers") { model.transfers.stopAll() }
+                IconButton("stop.circle", "Stop all transfers (⌘.)") { model.transfers.stopAll() }
                     .disabled(model.transfers.activeCount == 0)
             }
             group {
-                IconButton("rectangle.split.2x1", "Directory comparison", active: model.compareDirectories) {
+                IconButton("rectangle.split.2x1", "Directory comparison (⇧⌘C)", active: model.compareDirectories) {
                     model.compareDirectories.toggle()
                 }
-                IconButton("link", "Synchronized browsing", active: model.synchronizedBrowsing) {
+                IconButton("link", "Synchronized browsing (⇧⌘Y)", active: model.synchronizedBrowsing) {
                     model.toggleSynchronizedBrowsing()
                 }
                 .disabled(!connected)
-                IconButton(model.settings.showHiddenFiles ? "eye" : "eye.slash", "Show hidden files", active: model.settings.showHiddenFiles) {
+                IconButton(model.settings.showHiddenFiles ? "eye" : "eye.slash", "Show hidden files (⇧⌘H)", active: model.settings.showHiddenFiles) {
                     model.settings.showHiddenFiles.toggle()
                 }
                 IconButton("terminal", "Terminal (⌃`)", active: model.showTerminal) { model.toggleTerminal() }
@@ -114,7 +114,8 @@ struct IconButton: View {
         }
         .buttonStyle(.plain)
         .help(label)
-        .accessibilityLabel(label)
+        // VoiceOver reads the name without the shortcut hint, e.g. "Reconnect" for "Reconnect (⌘R)".
+        .accessibilityLabel(label.components(separatedBy: " (").first ?? label)
         .accessibilityValue(active ? "On" : "")
     }
 }

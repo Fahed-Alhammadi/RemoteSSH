@@ -22,6 +22,7 @@ import {
   Play,
   Plug,
   PlugZap,
+  Plus,
   RefreshCw,
   RotateCw,
   Server,
@@ -32,6 +33,7 @@ import {
   Unplug,
   Upload,
   X,
+  type LucideIcon,
 } from 'lucide-react'
 import type { ConnectResult } from '../shared/api'
 import { displayAddress, effectivePort, effectiveUser } from '../shared/site'
@@ -52,6 +54,7 @@ import { version } from '../../package.json'
 import { api } from './api'
 import { FilePane, type CompareMark, type DragPayload } from './components/FilePane'
 import { Dock, type DockPanel } from './components/LogQueue'
+import { logStore } from './logStore'
 import { PromptDialog } from './components/Prompts'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Sidebar } from './components/Sidebar'
@@ -62,13 +65,31 @@ import { IconButton, Modal, type MenuEntry } from './components/ui'
 interface PendingPrompt {
   key: number
   request: PromptRequest
+  /** Dialog icon for prompts the window asks itself (the default depends on the kind). */
+  icon?: LucideIcon
   resolve: (value: unknown) => void
+  answered?: boolean
 }
 
-const MAX_LOG = 5000
 let promptKey = 0
 const sep = api.platform === 'win32' ? '\\' : '/'
 const joinLocal = (dir: string, name: string) => (dir === '' ? name : dir.endsWith(sep) ? dir + name : dir + sep + name)
+const trashName = api.platform === 'win32' ? 'Recycle Bin' : 'Trash'
+
+/** Path components of `path` below `base`, or null when it is not inside `base` ("/www2" is not inside "/www"). */
+function subPath(base: string, path: string, separator: string): string[] | null {
+  if (path === base) return []
+  const prefix = base.endsWith(separator) ? base : base + separator
+  return path.startsWith(prefix) ? path.slice(prefix.length).split(separator).filter(Boolean) : null
+}
+
+/** Keeps the selected names that are still listed (a refresh of the same folder keeps the selection). */
+function keepListed(selection: Set<string>, entries: FileEntry[]): Set<string> {
+  if (!selection.size) return selection
+  const names = new Set(entries.map((e) => e.name))
+  const next = new Set([...selection].filter((n) => names.has(n)))
+  return next.size === selection.size ? selection : next
+}
 const mod = api.platform === 'darwin' ? '⌘' : 'Ctrl+'
 // xterm is large, so it loads with the first terminal.
 const TerminalView = lazy(() => import('./components/TerminalView').then((m) => ({ default: m.TerminalView })))
@@ -82,7 +103,6 @@ export function App() {
   const [remoteLoading, setRemoteLoading] = useState(false)
   const [localSel, setLocalSel] = useState<Set<string>>(new Set())
   const [remoteSel, setRemoteSel] = useState<Set<string>>(new Set())
-  const [log, setLog] = useState<LogLine[]>([])
   const [queue, setQueue] = useState<Map<string, TransferItem>>(new Map())
   const [processing, setProcessing] = useState(true)
   const [prompts, setPrompts] = useState<PendingPrompt[]>([])
@@ -97,6 +117,9 @@ export function App() {
   const [terminalStatus, setTerminalStatus] = useState<TerminalStatus>('disconnected')
   const [terminalMax, setTerminalMax] = useState(false)
   const localLogID = useRef(0)
+  /** Each listing request takes a number; a reply that is no longer the latest is dropped (fast clicking, slow servers). */
+  const localSeq = useRef(0)
+  const remoteSeq = useRef(0)
 
   const connected = conn.state === 'connected'
   const terminalActive = dockOpen && dockPanel === 'terminal'
@@ -111,25 +134,33 @@ export function App() {
   // MARK: Messages and prompts
 
   const addLog = useCallback((kind: LogLine['kind'], text: string) => {
-    setLog((l) => [...l, { id: -++localLogID.current, time: Date.now(), kind, text }].slice(-MAX_LOG))
+    logStore.append([{ id: -++localLogID.current, time: Date.now(), kind, text }])
   }, [])
   const fail = useCallback((e: unknown) => addLog('error', errorMessage(e)), [addLog])
 
   const ask = useCallback(
-    <T,>(request: PromptRequest) => new Promise<T>((resolve) => setPrompts((p) => [...p, { key: ++promptKey, request, resolve: resolve as (v: unknown) => void }])),
+    <T,>(request: PromptRequest, icon?: LucideIcon) =>
+      new Promise<T>((resolve) => setPrompts((p) => [...p, { key: ++promptKey, request, icon, resolve: resolve as (v: unknown) => void }])),
     [],
   )
+
+  // The newest state, for callbacks that finish later (refresh after a slow delete, transfer-done refresh).
+  const latest = useRef({ local, remote, remoteLoading, connected: conn.state === 'connected' })
+  latest.current = { local, remote, remoteLoading, connected: conn.state === 'connected' }
 
   // MARK: Startup and events
 
   const navigateLocal = useCallback(async (path: string) => {
+    const seq = ++localSeq.current
     try {
       const listing = await api.listLocal(path)
+      if (seq !== localSeq.current) return null
+      const samePath = latest.current.local?.path === listing.path
       setLocal(listing)
-      setLocalSel(new Set())
+      setLocalSel((sel) => (samePath ? keepListed(sel, listing.entries) : new Set()))
       return listing
     } catch (e) {
-      fail(e)
+      if (seq === localSeq.current) fail(e)
       return null
     }
   }, [fail])
@@ -146,7 +177,7 @@ export function App() {
       setProcessing(u.processing)
     })
     const offs = [
-      api.onLog((lines) => setLog((l) => (l.length + lines.length > MAX_LOG ? [...l, ...lines].slice(-MAX_LOG) : [...l, ...lines]))),
+      api.onLog((lines) => logStore.append(lines)),
       api.onQueue((u) => {
         setProcessing(u.processing)
         if (!u.upserts.length && !u.removed.length) return
@@ -168,30 +199,31 @@ export function App() {
 
   // MARK: Remote navigation
 
+  /** Resolves to false when the folder could not be listed (true also when a newer request took over). */
   const navigateRemote = useCallback(async (path: string, sync = true) => {
+    const seq = ++remoteSeq.current
     setRemoteLoading(true)
     try {
       const listing = await api.listRemote(path)
+      if (seq !== remoteSeq.current) return true
+      const samePath = latest.current.remote?.path === listing.path
       setRemote(listing)
-      setRemoteSel(new Set())
-      if (sync && syncBase && listing.path.startsWith(syncBase.remote)) {
-        const rel = listing.path.slice(syncBase.remote.length).split('/').filter(Boolean)
-        void navigateLocal(rel.reduce(joinLocal, syncBase.local))
-      }
+      setRemoteSel((sel) => (samePath ? keepListed(sel, listing.entries) : new Set()))
+      const rel = sync && syncBase ? subPath(syncBase.remote, listing.path, '/') : null
+      if (syncBase && rel) void navigateLocal(rel.reduce(joinLocal, syncBase.local))
       return true
     } catch {
-      return false
+      return seq !== remoteSeq.current
     } finally {
-      setRemoteLoading(false)
+      if (seq === remoteSeq.current) setRemoteLoading(false)
     }
   }, [syncBase, navigateLocal])
 
   const goLocal = useCallback(async (path: string, sync = true) => {
     const listing = await navigateLocal(path)
-    if (listing && sync && syncBase && connected && listing.path.startsWith(syncBase.local)) {
-      const rel = listing.path.slice(syncBase.local.length).split(/[\\/]/).filter(Boolean)
-      void navigateRemote(rel.reduce(RemotePath.join, syncBase.remote), false)
-    }
+    const rel = listing && sync && syncBase && connected ? subPath(syncBase.local, listing.path, sep) : null
+    if (syncBase && rel) void navigateRemote(rel.reduce(RemotePath.join, syncBase.remote), false)
+    return listing != null
   }, [navigateLocal, navigateRemote, syncBase, connected])
 
   const applyConnect = useCallback((result: ConnectResult) => {
@@ -203,6 +235,9 @@ export function App() {
   }, [navigateLocal])
 
   const connect = useCallback(async (run: () => Promise<ConnectResult>) => {
+    // Listings still on their way from the previous connection must not replace the new one.
+    remoteSeq.current++
+    setRemoteLoading(false)
     setRemote(null)
     try {
       applyConnect(await run())
@@ -212,11 +247,9 @@ export function App() {
   }, [applyConnect])
 
   // Refresh panes when transfers land in the visible folder.
-  const latest = useRef({ local, remote, remoteLoading })
-  latest.current = { local, remote, remoteLoading }
   useEffect(() => {
     const timers = new Map<string, number>()
-    return api.onRefresh((pane, dir) => {
+    const off = api.onRefresh((pane, dir) => {
       const cur = latest.current
       const visible = pane === 'local' ? cur.local?.path === dir : cur.remote?.path === dir
       if (!visible || timers.has(pane)) return
@@ -224,18 +257,31 @@ export function App() {
         timers.delete(pane)
         const now = latest.current
         if (pane === 'local' && now.local) {
-          void api.listLocal(now.local.path).then(setLocal).catch(() => undefined)
+          const seq = localSeq.current
+          void api.listLocal(now.local.path).then((l) => seq === localSeq.current && setLocal(l)).catch(() => undefined)
         } else if (pane === 'remote' && now.remote && !now.remoteLoading) {
-          void api.listRemote(now.remote.path).then(setRemote).catch(() => undefined)
+          const seq = remoteSeq.current
+          void api.listRemote(now.remote.path).then((l) => seq === remoteSeq.current && setRemote(l)).catch(() => undefined)
         }
       }, 400))
     })
+    return () => {
+      off()
+      timers.forEach((t) => clearTimeout(t))
+    }
   }, [])
 
   // MARK: Actions
 
-  const refreshLocal = () => local && void navigateLocal(local.path)
-  const refreshRemote = () => remote && void navigateRemote(remote.path, false)
+  // These read the newest state, so a refresh at the end of a slow operation reloads the folder now in view.
+  const refreshLocal = () => {
+    const path = latest.current.local?.path
+    if (path != null) void navigateLocal(path)
+  }
+  const refreshRemote = () => {
+    const { remote: current, connected: online } = latest.current
+    if (current && online) void navigateRemote(current.path, false)
+  }
 
   const upload = (paths: string[], remoteDir = remote?.path) => {
     if (!connected || !remoteDir) return addLog('error', 'Connect to a server first.')
@@ -263,13 +309,17 @@ export function App() {
 
   const remoteDelete = async (entries: FileEntry[]) => {
     if (!remote || !entries.length) return
+    const folders = entries.some((e) => e.isDirectory && !e.isLink)
     const ok = await ask<boolean>({
       kind: 'confirm',
       title: 'Delete from server',
-      message: entries.length === 1 ? `Really delete “${entries[0].name}” from the server?` : `Really delete ${entries.length} items from the server?`,
+      message:
+        (entries.length === 1 ? `Delete “${entries[0].name}” from the server?` : `Delete ${entries.length} items from the server?`) +
+        (folders ? ' Folders are deleted with everything in them.' : '') +
+        ' This cannot be undone.',
       confirm: 'Delete',
       destructive: true,
-    })
+    }, Trash2)
     if (!ok) return
     await api.remoteDelete(remote.path, entries).catch(() => undefined)
     refreshRemote()
@@ -279,11 +329,11 @@ export function App() {
     if (!local || !entries.length) return
     const ok = await ask<boolean>({
       kind: 'confirm',
-      title: 'Move to trash',
-      message: entries.length === 1 ? `Move “${entries[0].name}” to the trash?` : `Move ${entries.length} items to the trash?`,
-      confirm: 'Move to Trash',
+      title: `Move to ${trashName.toLowerCase()}`,
+      message: entries.length === 1 ? `Move “${entries[0].name}” to the ${trashName}?` : `Move ${entries.length} items to the ${trashName}?`,
+      confirm: `Move to ${trashName}`,
       destructive: true,
-    })
+    }, Trash2)
     if (!ok) return
     await api.localTrash(local.path, entries.map((e) => e.name)).catch(fail)
     refreshLocal()
@@ -292,7 +342,7 @@ export function App() {
   const rename = async (side: 'local' | 'remote', entry: FileEntry) => {
     const dir = side === 'local' ? local?.path : remote?.path
     if (dir == null) return
-    const name = await ask<string | null>({ kind: 'text', title: 'Rename', message: `New name for “${entry.name}”:`, initial: entry.name })
+    const name = await ask<string | null>({ kind: 'text', title: 'Rename', message: `New name for “${entry.name}”:`, initial: entry.name }, Pencil)
     if (!name || name === entry.name) return
     try {
       if (side === 'local') await api.localRename(dir, entry.name, name)
@@ -307,7 +357,7 @@ export function App() {
   const mkdir = async (side: 'local' | 'remote') => {
     const dir = side === 'local' ? local?.path : remote?.path
     if (dir == null || dir === '') return
-    const name = await ask<string | null>({ kind: 'text', title: 'Create directory', message: 'Name of the new directory:', initial: 'New directory' })
+    const name = await ask<string | null>({ kind: 'text', title: 'Create directory', message: 'Name of the new directory:', initial: 'New directory' }, FolderPlus)
     if (!name) return
     try {
       if (side === 'local') await api.localMkdir(dir, name)
@@ -322,7 +372,7 @@ export function App() {
 
   const customCommand = async () => {
     if (!connected) return
-    const cmd = await ask<string | null>({ kind: 'text', title: 'Enter custom command', message: 'Command to send to the server (FTP only):', initial: '' })
+    const cmd = await ask<string | null>({ kind: 'text', title: 'Enter custom command', message: 'Command to send to the server (FTP only):', initial: '' }, SquareTerminal)
     if (!cmd) return
     api.rawCommand(cmd).then((r) => addLog('response', r)).catch(() => undefined)
   }
@@ -393,11 +443,18 @@ export function App() {
   }
   useEffect(() => api.onMenu((a) => runMenu.current(a)), [])
   // Ctrl+` is also handled here: keys typed into the terminal do not always reach the native menu.
+  // On Windows/Linux, Ctrl+Shift+C (Directory Comparison) is only handled here, since the terminal uses it to copy
+  // (it calls preventDefault on that key, so it never toggles the comparison).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.metaKey || e.altKey || e.code !== 'Backquote') return
-      e.preventDefault()
-      runMenu.current('toggleTerminal')
+      if (!e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.code === 'Backquote') {
+        e.preventDefault()
+        runMenu.current('toggleTerminal')
+      } else if (api.platform !== 'darwin' && e.shiftKey && e.code === 'KeyC' && !e.defaultPrevented) {
+        e.preventDefault()
+        runMenu.current('toggleCompare')
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -454,7 +511,7 @@ export function App() {
     'separator',
     { label: 'Create Directory…', icon: FolderPlus, disabled: local?.path === '', onClick: () => void mkdir('local') },
     { label: 'Rename…', icon: Pencil, disabled: entries.length !== 1, onClick: () => void rename('local', entries[0]) },
-    { label: 'Move to Trash', icon: Trash2, danger: true, disabled: !entries.length, onClick: () => void localDelete(entries) },
+    { label: `Move to ${trashName}`, icon: Trash2, danger: true, disabled: !entries.length, onClick: () => void localDelete(entries) },
     'separator',
     { label: 'Refresh', icon: RefreshCw, onClick: refreshLocal },
   ]
@@ -475,8 +532,10 @@ export function App() {
       onClick: () => {
         if (!conn.site || !remote) return
         const base = displayAddress(conn.site)
-        const urls = (entries.length ? entries.map((e) => RemotePath.join(remote.path, e.name)) : [remote.path]).map((p) => base + encodeURI(p))
-        void navigator.clipboard.writeText(urls.join('\n'))
+        // Encode each segment, so names with "#", "?" or "%" stay part of the path.
+        const encode = (p: string) => p.split('/').map(encodeURIComponent).join('/')
+        const urls = (entries.length ? entries.map((e) => RemotePath.join(remote.path, e.name)) : [remote.path]).map((p) => base + encode(p))
+        navigator.clipboard.writeText(urls.join('\n')).catch(fail)
       },
     },
     {
@@ -573,7 +632,7 @@ export function App() {
           comparison={comparison?.local ?? null}
           selection={localSel}
           onSelection={setLocalSel}
-          onNavigate={(p) => void goLocal(p)}
+          onNavigate={(p) => goLocal(p)}
           onUp={() => local?.parent != null && void goLocal(local.parent)}
           onRefresh={refreshLocal}
           onOpen={openLocal}
@@ -594,7 +653,7 @@ export function App() {
           comparison={comparison?.remote ?? null}
           selection={remoteSel}
           onSelection={setRemoteSel}
-          onNavigate={(p) => void navigateRemote(p)}
+          onNavigate={(p) => navigateRemote(p)}
           onUp={() => remote && void navigateRemote(RemotePath.parent(remote.path))}
           onRefresh={refreshRemote}
           onOpen={(e) => void openRemote(e)}
@@ -612,7 +671,7 @@ export function App() {
                 <h3>{conn.state === 'connecting' ? 'Connecting…' : 'Not connected'}</h3>
                 <p>{conn.state === 'connecting' ? displayAddress(conn.site!) : 'Pick a site on the left, or type an address above.'}</p>
                 {conn.state === 'disconnected' && !sites.sites.length && (
-                  <button type="button" className="primary" onClick={() => setDialog('sites')}><Server size={14} /> Add a site</button>
+                  <button type="button" className="primary" onClick={() => setDialog('sites')}><Plus size={15} /> Add a site</button>
                 )}
               </div>
             )
@@ -628,7 +687,6 @@ export function App() {
           onPanel={(p) => (p === 'terminal' ? showTerminal(true) : setDockPanel(p))}
           onOpen={setDockOpen}
           onResize={setDockHeight}
-          log={log}
           items={queueItems}
           siteName={siteName}
           onRemove={(ids) => void api.removeTransfers(ids)}
@@ -703,6 +761,7 @@ export function App() {
           initial={settings}
           onClose={() => setDialog(null)}
           onSave={(s) => {
+            if (s.showDirectoryComparison !== settings.showDirectoryComparison) setCompare(s.showDirectoryComparison)
             setSettings(s)
             void api.saveSettings(s)
             setDialog(null)
@@ -728,9 +787,14 @@ export function App() {
         <PromptDialog
           key={prompt.key}
           request={prompt.request}
+          icon={prompt.icon}
           done={(value) => {
+            // Answered once and removed by key, so a second answer (double click, Enter + click) cannot
+            // reach the server twice or drop the next question.
+            if (prompt.answered) return
+            prompt.answered = true
             prompt.resolve(value)
-            setPrompts((p) => p.slice(1))
+            setPrompts((p) => p.filter((x) => x.key !== prompt.key))
           }}
         />
       )}

@@ -28,7 +28,7 @@ export function Sidebar(props: {
       </div>
       <div className="sidebar-head">
         <h2>Sites</h2>
-        <button type="button" className="icon-button small" aria-label="Manage sites" title="Site Manager" onClick={props.onManage}>
+        <button type="button" className="icon-button small" aria-label="Site Manager" title="Site Manager" onClick={props.onManage}>
           <SlidersHorizontal size={15} strokeWidth={1.75} />
         </button>
       </div>
@@ -52,6 +52,7 @@ export function Sidebar(props: {
                   className={`site-item${active ? ' active' : ''}${folder ? ' nested' : ''}`}
                   disabled={!s.host}
                   title={s.host ? `Connect to ${s.name}` : 'This site has no host name'}
+                  aria-current={active ? 'true' : undefined}
                   onClick={() => props.onConnect(s.id)}
                 >
                   <Icon size={15} strokeWidth={1.75} style={{ color }} />
@@ -59,7 +60,7 @@ export function Sidebar(props: {
                     <span className="site-name">{s.name}</span>
                     <span className="site-host">{s.user ? `${s.user}@` : ''}{s.host}</span>
                   </span>
-                  {active && <span className={`status-dot ${props.connection.state}`} aria-label={props.connection.state === 'connected' ? 'Connected' : 'Connecting'} />}
+                  {active && <span className={`status-dot ${props.connection.state}`} role="img" aria-label={props.connection.state === 'connected' ? 'Connected' : 'Connecting'} />}
                 </button>
               )
             })}

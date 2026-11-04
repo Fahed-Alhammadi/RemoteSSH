@@ -59,3 +59,28 @@ export function localStat(file: string): { size: number; modified: number; isDir
     return null
   }
 }
+
+/**
+ * `dir` joined with a file name that came from a server listing, or null when the name would leave `dir`
+ * ("..", "../x", and on Windows "..\x" or "C:x"), so a hostile server can't make a download write elsewhere.
+ */
+export function localChild(dir: string, name: string, p: typeof path.posix = path): string | null {
+  if (!name || name === '.' || name === '..' || name.includes('\0') || p.basename(name) !== name) return null
+  return p.join(dir, name)
+}
+
+/** File types each OS runs (or installs) when opened with their default handler, instead of showing them. */
+const PROGRAM_EXTENSIONS: Partial<Record<NodeJS.Platform, Set<string>>> = {
+  win32: new Set([
+    'exe', 'com', 'scr', 'pif', 'bat', 'cmd', 'msi', 'msp', 'msc', 'cpl', 'hta', 'js', 'jse', 'vbs', 'vbe', 'wsf',
+    'wsh', 'ps1', 'reg', 'lnk', 'url', 'scf', 'inf', 'application', 'appref-ms', 'jar', 'appx', 'msix', 'settingcontent-ms',
+  ]),
+  darwin: new Set(['app', 'command', 'tool', 'terminal', 'workflow', 'action', 'pkg', 'mpkg', 'scpt', 'jar', 'fileloc', 'inetloc', 'webloc']),
+  linux: new Set(['desktop', 'appimage', 'run', 'jar', 'deb', 'rpm']),
+}
+
+/** True when opening `name` with its default app would run it (View/Edit then only reveals the file). */
+export function opensAsProgram(name: string, platform: NodeJS.Platform = process.platform): boolean {
+  const dot = name.lastIndexOf('.')
+  return dot >= 0 && (PROGRAM_EXTENSIONS[platform]?.has(name.slice(dot + 1).toLowerCase()) ?? false)
+}

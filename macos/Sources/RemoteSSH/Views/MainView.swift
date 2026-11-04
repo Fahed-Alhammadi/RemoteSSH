@@ -55,11 +55,13 @@ struct StatusBar: View {
     var body: some View {
         HStack(spacing: 8) {
             if let site = model.currentSite, model.connection == .connected {
-                let secure = site.serverProtocol == .sftp || site.encryption != .plain
+                // What the session negotiated: "TLS if available" may have fallen back to plain FTP.
+                let secure = model.session?.isEncrypted ?? (site.serverProtocol == .sftp || site.encryption != .plain)
                 StatusDot(color: secure ? Theme.success : Theme.warning)
                 Image(systemName: secure ? "lock.shield.fill" : "exclamationmark.shield")
                     .foregroundStyle(secure ? Theme.success : Theme.warning)
                     .help(secure ? "The connection is encrypted" : "The connection is not encrypted")
+                    .accessibilityLabel(secure ? "Encrypted" : "Not encrypted")
                 Text(site.displayAddress).foregroundStyle(.secondary)
             } else {
                 StatusDot(color: model.connection == .connecting ? Theme.warning : .secondary,
@@ -69,7 +71,7 @@ struct StatusBar: View {
             }
             Spacer()
             let q = model.transfers.queued
-            Image(systemName: "tray.full").foregroundStyle(.secondary)
+            Image(systemName: "tray.full").foregroundStyle(.secondary).accessibilityHidden(true)
             Text("\(q.count) queued · \(Format.bytes(model.transfers.queuedBytes))")
                 .foregroundStyle(.secondary)
                 .monospacedDigit()

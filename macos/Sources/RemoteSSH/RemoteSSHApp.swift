@@ -72,12 +72,18 @@ struct RemoteSSHApp: App {
         }
         CommandGroup(after: .toolbar) {
             Toggle("Activity", isOn: Binding(get: { model.dockOpen && model.dockPanel == .activity }, set: { _ in model.showDock(.activity, toggle: true) }))
-                .keyboardShortcut("l", modifiers: [.command, .option])
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+            // Not ⌥⌘Q: that is the system's "Quit and Keep Windows".
             Toggle("Transfers", isOn: Binding(get: { model.dockOpen && model.dockPanel == .transfers }, set: { _ in model.showDock(.transfers, toggle: true) }))
-                .keyboardShortcut("q", modifiers: [.command, .option])
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+            Divider()
+            Toggle("Show Hidden Files", isOn: Binding(get: { model.settings.showHiddenFiles }, set: { model.settings.showHiddenFiles = $0 }))
+                .keyboardShortcut("h", modifiers: [.command, .shift])
             Toggle("Directory Comparison", isOn: Binding(get: { model.compareDirectories }, set: { model.compareDirectories = $0 }))
+                .keyboardShortcut("c", modifiers: [.command, .shift])
             Toggle("Synchronized Browsing", isOn: Binding(get: { model.synchronizedBrowsing }, set: { _ in model.toggleSynchronizedBrowsing() }))
-                .keyboardShortcut("y", modifiers: .command)
+                .keyboardShortcut("y", modifiers: [.command, .shift])
+                .disabled(model.connection != .connected)
             Toggle("Terminal", isOn: Binding(get: { model.showTerminal }, set: { model.showTerminalTab($0) }))
                 .keyboardShortcut("`", modifiers: .control)
             Divider()

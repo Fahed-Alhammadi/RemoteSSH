@@ -61,6 +61,7 @@ export class SFTPSession implements RemoteSession {
         if (settled) return
         settled = true
         this.closed = true
+        this.client.end() // e.g. the SFTP subsystem failed after login: don't leave the socket open
         reject(e)
       }
       this.client.on('keyboard-interactive', (_name, _instructions, _lang, prompts, finish) => {
@@ -76,10 +77,12 @@ export class SFTPSession implements RemoteSession {
       })
       this.client.on('error', (err: Error & { level?: string }) => {
         if (err.level === 'client-authentication') fail(new SessionError(`Authentication failed: ${err.message}`))
-        else fail(new SessionError(this.hostKeyRejected ? "The server's host key was rejected." : err.message))
+        // A rejected host key is the user's decision: CancelledError keeps the queue from asking again.
+        else if (this.hostKeyRejected) fail(new CancelledError("The server's host key was rejected."))
+        else fail(new SessionError(err.message))
       })
       this.client.on('close', () => {
-        fail(new SessionError('Connection closed.'))
+        fail(this.hostKeyRejected ? new CancelledError("The server's host key was rejected.") : new SessionError('Connection closed.'))
         this.markClosed()
       })
       this.client.connect(config)

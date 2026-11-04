@@ -33,6 +33,7 @@ struct TerminalPlaceholder: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "terminal").font(.title2).foregroundStyle(SwiftUI.Color(nsColor: Theme.Terminal.cursor))
+                .accessibilityHidden(true)
             Text(message).foregroundStyle(SwiftUI.Color(nsColor: Theme.Terminal.foreground)).multilineTextAlignment(.center)
             if model.canOpenTerminal {
                 Button("Open Terminal", systemImage: "terminal") { model.showTerminalTab(true) }
@@ -64,9 +65,11 @@ struct TerminalHeader: View {
             Text(terminal.label).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
             Button { model.restartTerminal() } label: { Image(systemName: "arrow.clockwise") }
                 .help("Restart the terminal")
+                .accessibilityLabel("Restart the terminal")
                 .disabled(!model.canOpenTerminal)
             Button { model.closeTerminal() } label: { Image(systemName: "xmark") }
                 .help("Close the terminal")
+                .accessibilityLabel("Close the terminal")
         }
         .font(.caption)
         .buttonStyle(.borderless)

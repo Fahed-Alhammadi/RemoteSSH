@@ -5,18 +5,28 @@ import Foundation
 /// One instance = one control connection; the transfer queue creates a separate session per
 /// concurrent transfer.
 public final class FTPSession: RemoteSession, @unchecked Sendable {
-    public private(set) var site: Site
     private let credentials: SessionCredentials
     private let options: SessionOptions
     private weak var prompter: SessionPrompter?
     private let log: LogSink
     private let queue: DispatchQueue
     private let handle = CurlHandle()
+    /// Guards the mutable state below: operations on one session can run concurrently (browsing
+    /// while a folder is being queued), and the curl queue reads `site` while callers update it.
+    private let lock = NSLock()
+    private var _site: Site
     private var listCommand: String?
     private var cachedHome: String?
+    private var tlsActive = false
+
+    public var site: Site { lock.withLock { _site } }
+
+    /// Whether the control connection is encrypted. With "explicit TLS if available" this is only
+    /// known after `connect()`: a server without AUTH TLS falls back to plain FTP.
+    public var isEncrypted: Bool { lock.withLock { tlsActive } }
 
     init(site: Site, credentials: SessionCredentials, options: SessionOptions, prompter: SessionPrompter?, log: @escaping LogSink) {
-        self.site = site
+        self._site = site
         self.credentials = credentials
         self.options = options
         self.prompter = prompter
@@ -27,6 +37,7 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
     // MARK: URL building
 
     private var baseURL: String {
+        let site = self.site
         let scheme = site.encryption == .requireImplicit ? "ftps" : "ftp"
         let host = site.host.contains(":") ? "[\(site.host)]" : site.host
         return "\(scheme)://\(host):\(site.effectivePort)"
@@ -51,6 +62,7 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
     // MARK: Option setup
 
     private func applyBaseOptions(_ h: CurlHandle) {
+        let site = self.site
         h.set(CURLOPT_USERNAME, site.effectiveUser.isEmpty ? "anonymous" : site.effectiveUser)
         h.set(CURLOPT_PASSWORD, site.logonType == .anonymous ? "anonymous@example.com" : credentials.password)
         h.set(CURLOPT_CONNECTTIMEOUT, options.connectTimeout)
@@ -84,7 +96,7 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
         } catch let failure as CertificateFailure {
             let accepted = await prompter?.confirmCertificate(host: site.host, port: site.effectivePort, reason: failure.message) ?? false
             guard accepted else { throw RemoteSSHError.certificateRejected }
-            site.trustInvalidCertificate = true
+            lock.withLock { _site.trustInvalidCertificate = true }
             log(LogLine(.status, "Certificate accepted by user for \(site.host)"))
             return try await perform(body)
         }
@@ -97,12 +109,29 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
                 applyBaseOptions(handle)
                 let ctx = CurlContext()
                 ctx.log = log
-                do {
-                    cont.resume(returning: try body(handle, ctx))
-                } catch {
-                    cont.resume(throwing: error)
-                }
+                let result = Result { try body(handle, ctx) }
+                noteNewConnection(ctx.responseLines)
+                cont.resume(with: result)
             }
+        }
+    }
+
+    /// A "220" greeting means this request opened a new control connection. Records whether it is
+    /// encrypted; once TLS worked, later reconnects require it, so they can't be downgraded to plain FTP.
+    private func noteNewConnection(_ replies: [String]) {
+        guard replies.contains(where: { $0.hasPrefix("220") }) else { return }
+        lock.withLock {
+            switch _site.encryption {
+            case .plain: tlsActive = false
+            case .requireExplicit, .requireImplicit: tlsActive = true
+            case .explicitIfAvailable:
+                // 234 (or 334 for AUTH SSL) accepts the AUTH command; without it curl carries on in plain text.
+                tlsActive = replies.contains { $0.hasPrefix("234") || $0.hasPrefix("334") }
+                if tlsActive { _site.encryption = .requireExplicit }
+            }
+        }
+        if !isEncrypted && site.encryption != .plain {
+            log(LogLine(.error, "The server does not support TLS; the connection is not encrypted"))
         }
     }
 
@@ -143,7 +172,7 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
     }
 
     public func homeDirectory() async throws -> String {
-        if let cachedHome { return cachedHome }
+        if let cachedHome = lock.withLock({ cachedHome }) { return cachedHome }
         let base = baseURL + "/"
         let home: String = try await run { h, ctx in
             h.set(CURLOPT_URL, base)
@@ -155,12 +184,13 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
             else { return "/" }
             return String(line[line.index(after: first)..<last]).replacingOccurrences(of: "\"\"", with: "\"")
         }
-        cachedHome = home
+        lock.withLock { cachedHome = home }
         return home
     }
 
     public func list(_ path: String) async throws -> [FileEntry] {
-        let candidates = listCommand.map { [$0] } ?? ["MLSD", "LIST -a", "LIST"]
+        let known = lock.withLock { listCommand }
+        let candidates = known.map { [$0] } ?? ["MLSD", "LIST -a", "LIST"]
         var lastError: Error?
         for command in candidates {
             do {
@@ -172,18 +202,30 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
                     try self.check(h.perform(ctx), ctx)
                     return String(decoding: data, as: UTF8.self)
                 }
-                listCommand = command
-                return ListingParser.parse(text)
+                lock.withLock { listCommand = command }
+                return ListingParser.parse(text) { name in
+                    self.log(LogLine(.error, "Skipped an entry with an invalid file name: \(name.debugDescription)"))
+                }
             } catch let error as RemoteSSHError {
-                if case .commandFailed = error, listCommand == nil { lastError = error; continue }
+                if case .commandFailed = error, known == nil { lastError = error; continue }
                 throw error
             }
         }
         throw lastError ?? RemoteSSHError.commandFailed("Failed to retrieve directory listing")
     }
 
+    /// FTP commands end at CR/LF, so a name containing one would smuggle in a second command
+    /// (e.g. a rename to "x\r\nDELE important").
+    static func validate(_ commands: [String]) throws {
+        // Unicode scalars, not Characters: "\r\n" is a single Character that equals neither "\r" nor "\n".
+        if commands.contains(where: { $0.unicodeScalars.contains { $0 == "\r" || $0 == "\n" || $0 == "\0" } }) {
+            throw RemoteSSHError.invalidInput("File names with line breaks can't be used over FTP.")
+        }
+    }
+
     private func quote(_ commands: [String], in directory: String) async throws -> [String] {
-        try await run { h, ctx in
+        try Self.validate(commands)
+        return try await run { h, ctx in
             h.set(CURLOPT_URL, self.url(for: directory, directory: true))
             h.set(CURLOPT_NOBODY, 1)
             h.set(CURLOPT_QUOTE, list: commands)

@@ -24,7 +24,7 @@ RemoteSSH has two code bases that share one feature set and one site file format
 - **FTP/FTPS:** explicit or implicit TLS. Before any password is sent, you are asked about certificates that can't be verified.
 - **Browsing:** local and remote panes side by side, with sortable columns, a filter, file-type icons, hidden files, directory comparison, synchronized browsing, and drag & drop between panes and from your file manager.
 - **Workspace:** the same layout on every platform. The activity log, the transfer queue and the terminal share one resizable panel below the panes, with a tab for each; it can be collapsed or, for the terminal, maximized.
-- **File operations:** create, rename, delete (recursively), change permissions, and View/Edit (open a remote file locally and upload it again when you save).
+- **File operations:** create, rename, delete (recursively), change permissions, and View/Edit (open a remote file locally and upload it again when you save; scripts and programs are shown in their folder instead of being run).
 - **SSH terminal:** for SFTP sites, the Terminal tab opens a shell on the server, on its own connection, in the folder you're viewing. Open it with Ctrl+` (all platforms), the toolbar, or *Open Terminal Here* on a remote folder. On Windows and Linux, copy and paste are Ctrl+Shift+C / Ctrl+Shift+V.
 - **Transfer queue:** parallel transfers, queued/failed/done tabs, automatic retries, resume, a choice of what to do when a file already exists, and speed limits. The queue is kept across restarts.
 - **Appearance:** light, dark, or follow the system, chosen in Settings.

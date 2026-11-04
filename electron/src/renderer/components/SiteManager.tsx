@@ -69,6 +69,27 @@ export function SiteManager(props: {
 
   const update = (patch: Partial<Site>) => site && setSites((all) => all.map((s) => (s.id === site.id ? { ...s, ...patch } : s)))
 
+  /** FTP has no key files and SFTP no anonymous logon; switching protocol must not keep a logon type the form cannot show. */
+  function setProtocol(protocol: ServerProtocol) {
+    if (!site) return
+    const invalid = protocol === 'sftp' ? site.logonType === 'anonymous' : site.logonType === 'keyFile'
+    update({ serverProtocol: protocol, ...(invalid ? { logonType: 'normal' as LogonType } : {}) })
+  }
+
+  /** Up/Down move through the site list, Enter connects. */
+  function treeKey(e: React.KeyboardEvent) {
+    const ordered = tree.flatMap(([, list]) => list)
+    const i = ordered.findIndex((s) => s.id === selectedID)
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const next = ordered[Math.max(0, Math.min(ordered.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))]
+      if (next) setSelectedID(next.id)
+    } else if (e.key === 'Enter' && site?.host) {
+      e.preventDefault()
+      void (async () => (await save()) && props.onConnect(site.id))()
+    }
+  }
+
   async function save(): Promise<boolean> {
     try {
       const state = await api.saveSites({ sites, passwords })
@@ -108,28 +129,33 @@ export function SiteManager(props: {
   const hasStored = site ? stored.has(site.id) && passwords[site.id] !== null : false
 
   return (
-    <Modal title="Site Manager" icon={Server} onClose={props.onClose} width={860}
+    <Modal title="Site Manager" icon={Server} onClose={props.onClose} closeOnBackdrop={false} width={860}
       footer={<>
-        <button type="button" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY - 80 })}><ArrowDownUp size={14} /> Import / Export</button>
+        <button type="button" aria-haspopup="menu" onClick={(e) => {
+          // From the button itself, so it also works from the keyboard (no pointer position).
+          const r = e.currentTarget.getBoundingClientRect()
+          setMenu({ x: r.left, y: r.top - 76 })
+        }}><ArrowDownUp size={15} /> Import / Export</button>
         <span className="spacer" />
         <button type="button" onClick={props.onClose}>Cancel</button>
         <button type="button" onClick={async () => (await save()) && props.onClose()}>Save</button>
         <button type="button" className="primary" disabled={!site?.host}
-          onClick={async () => site && (await save()) && props.onConnect(site.id)}><Plug size={14} /> Connect</button>
+          onClick={async () => site && (await save()) && props.onConnect(site.id)}><Plug size={15} /> Connect</button>
       </>}>
       <div className="site-manager">
         <aside>
           <div className="segmented">
             <button type="button" onClick={() => add()} title="New site"><Plus size={15} /> New</button>
-            <button type="button" disabled={!site} title="Duplicate" onClick={() => site && add({ ...site, id: newID(), name: `${site.name} copy` })}><Copy size={15} /></button>
-            <button type="button" disabled={!site} title="Delete" className="danger"
+            <button type="button" disabled={!site} title="Duplicate site" aria-label="Duplicate site" onClick={() => site && add({ ...site, id: newID(), name: `${site.name} copy` })}><Copy size={15} /></button>
+            <button type="button" disabled={!site} title="Delete site" aria-label="Delete site" className="danger"
               onClick={() => {
                 if (!site) return
                 setSites((all) => all.filter((s) => s.id !== site.id))
                 setSelectedID(null)
               }}><Trash2 size={15} /></button>
           </div>
-          <div className="site-tree" role="tree">
+          <div className="site-tree" role="tree" aria-label="Sites" tabIndex={0} onKeyDown={treeKey}
+            aria-activedescendant={selectedID ? `site-${selectedID}` : undefined}>
             {tree.length === 0 && <div className="empty">No sites yet</div>}
             {tree.map(([folder, list]) => (
               <div key={folder} role="group">
@@ -137,12 +163,12 @@ export function SiteManager(props: {
                 {list.map((s) => {
                   const { icon: Icon, color } = siteIcon(s)
                   return (
-                    <div key={s.id} role="treeitem" aria-selected={s.id === selectedID}
+                    <div key={s.id} id={`site-${s.id}`} role="treeitem" aria-selected={s.id === selectedID}
                       className={`tree-site${s.id === selectedID ? ' selected' : ''}${folder ? ' nested' : ''}`}
                       onClick={() => setSelectedID(s.id)}
                       onDoubleClick={async () => s.host && (await save()) && props.onConnect(s.id)}>
                       <Icon size={15} color={color} />
-                      <span>{s.name || 'Unnamed'}</span>
+                      <span>{s.name || 'Unnamed site'}</span>
                     </div>
                   )
                 })}
@@ -152,83 +178,83 @@ export function SiteManager(props: {
         </aside>
         {site ? (
           <div className="site-form">
-            <div className="tabs small">
-              <button type="button" className={tab === 'general' ? 'active' : ''} onClick={() => setTab('general')}>General</button>
-              <button type="button" className={tab === 'advanced' ? 'active' : ''} onClick={() => setTab('advanced')}>Advanced</button>
+            <div className="tabs small" role="tablist" aria-label="Site settings">
+              <button type="button" role="tab" aria-selected={tab === 'general'} className={tab === 'general' ? 'active' : ''} onClick={() => setTab('general')}>General</button>
+              <button type="button" role="tab" aria-selected={tab === 'advanced'} className={tab === 'advanced' ? 'active' : ''} onClick={() => setTab('advanced')}>Advanced</button>
             </div>
             {tab === 'general' ? (
               <div className="form-grid">
-                <label>Name</label>
-                <input value={site.name} onChange={(e) => update({ name: e.target.value })} />
-                <label>Folder</label>
-                <input value={site.folder} list="site-folders" placeholder="None" onChange={(e) => update({ folder: e.target.value.replace(/^\/+|\/+$/g, '') })} />
+                <label htmlFor="site-name">Name</label>
+                <input id="site-name" value={site.name} onChange={(e) => update({ name: e.target.value })} />
+                <label htmlFor="site-folder">Folder</label>
+                <input id="site-folder" value={site.folder} list="site-folders" placeholder="None" onChange={(e) => update({ folder: e.target.value.replace(/^\/+|\/+$/g, '') })} />
                 <datalist id="site-folders">{folders.map((f) => <option key={f} value={f} />)}</datalist>
-                <label>Protocol</label>
-                <select value={site.serverProtocol} onChange={(e) => update({ serverProtocol: e.target.value as ServerProtocol })}>
+                <label htmlFor="site-protocol">Protocol</label>
+                <select id="site-protocol" value={site.serverProtocol} onChange={(e) => setProtocol(e.target.value as ServerProtocol)}>
                   {Object.entries(protocolLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
-                <label>Host</label>
+                <label htmlFor="site-host">Host</label>
                 <div className="host-port">
-                  <input value={site.host} placeholder="example.com" spellCheck={false} onChange={(e) => update({ host: e.target.value.trim() })} />
+                  <input id="site-host" value={site.host} placeholder="example.com" spellCheck={false} onChange={(e) => update({ host: e.target.value.trim() })} />
                   <input value={site.port || ''} placeholder={site.serverProtocol === 'sftp' ? '22' : site.encryption === 'requireImplicit' ? '990' : '21'}
                     aria-label="Port" inputMode="numeric" onChange={(e) => update({ port: Number(e.target.value.replace(/\D/g, '')) || 0 })} />
                 </div>
                 {site.serverProtocol === 'ftp' && (<>
-                  <label>Encryption</label>
-                  <select value={site.encryption} onChange={(e) => update({ encryption: e.target.value as FTPEncryption })}>
+                  <label htmlFor="site-encryption">Encryption</label>
+                  <select id="site-encryption" value={site.encryption} onChange={(e) => update({ encryption: e.target.value as FTPEncryption })}>
                     {Object.entries(encryptionLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                   </select>
                 </>)}
-                <label>Logon type</label>
-                <select value={site.logonType} onChange={(e) => update({ logonType: e.target.value as LogonType })}>
+                <label htmlFor="site-logon">Logon type</label>
+                <select id="site-logon" value={site.logonType} onChange={(e) => update({ logonType: e.target.value as LogonType })}>
                   {Object.entries(logonLabels)
                     .filter(([k]) => (site.serverProtocol === 'sftp' ? k !== 'anonymous' : k !== 'keyFile'))
                     .map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
                 {site.logonType !== 'anonymous' && (<>
-                  <label>User</label>
-                  <input value={site.user} spellCheck={false} onChange={(e) => update({ user: e.target.value })} />
+                  <label htmlFor="site-user">User</label>
+                  <input id="site-user" value={site.user} spellCheck={false} onChange={(e) => update({ user: e.target.value })} />
                 </>)}
                 {site.logonType === 'normal' && (<>
-                  <label>Password</label>
+                  <label htmlFor="site-password">Password</label>
                   <div className="stack">
-                    <input type="password" value={passwordValue} disabled={!canStore}
+                    <input id="site-password" type="password" value={passwordValue} disabled={!canStore}
                       placeholder={!canStore ? 'Asked when connecting' : hasStored ? '•••••••• (saved)' : ''}
                       onChange={(e) => setPasswords((p) => ({ ...p, [site.id]: e.target.value || (hasStored ? null : '') }))} />
                     {!canStore && <small className="muted">No secure password storage (keyring) is available on this system.</small>}
                   </div>
                 </>)}
                 {site.logonType === 'keyFile' && (<>
-                  <label>Key file</label>
+                  <label htmlFor="site-key">Key file</label>
                   <div className="host-port">
-                    <input value={site.keyFilePath} placeholder="~/.ssh/id_ed25519" spellCheck={false} onChange={(e) => update({ keyFilePath: e.target.value })} />
+                    <input id="site-key" value={site.keyFilePath} placeholder="~/.ssh/id_ed25519" spellCheck={false} onChange={(e) => update({ keyFilePath: e.target.value })} />
                     <button type="button" onClick={async () => {
                       const p = await api.chooseKeyFile()
                       if (p) update({ keyFilePath: p })
                     }}>Browse…</button>
                   </div>
                 </>)}
-                <label>Comments</label>
-                <textarea rows={3} value={site.comments} onChange={(e) => update({ comments: e.target.value })} />
+                <label htmlFor="site-comments">Comments</label>
+                <textarea id="site-comments" rows={3} value={site.comments} onChange={(e) => update({ comments: e.target.value })} />
               </div>
             ) : (
               <div className="form-grid">
-                <label>Default local directory</label>
+                <label htmlFor="site-local-dir">Default local directory</label>
                 <div className="host-port">
-                  <input value={site.defaultLocalDirectory} onChange={(e) => update({ defaultLocalDirectory: e.target.value })} />
+                  <input id="site-local-dir" value={site.defaultLocalDirectory} spellCheck={false} onChange={(e) => update({ defaultLocalDirectory: e.target.value })} />
                   <button type="button" onClick={async () => {
                     const p = await api.chooseFolder()
                     if (p) update({ defaultLocalDirectory: p })
-                  }}><Folder size={14} /></button>
+                  }} aria-label="Choose default local directory" title="Choose folder"><Folder size={15} /></button>
                 </div>
-                <label>Default remote directory</label>
-                <input value={site.defaultRemoteDirectory} placeholder="/" spellCheck={false} onChange={(e) => update({ defaultRemoteDirectory: e.target.value })} />
+                <label htmlFor="site-remote-dir">Default remote directory</label>
+                <input id="site-remote-dir" value={site.defaultRemoteDirectory} placeholder="/" spellCheck={false} onChange={(e) => update({ defaultRemoteDirectory: e.target.value })} />
                 {site.serverProtocol === 'ftp' && (<>
-                  <label>Transfer mode</label>
-                  <select value="passive" disabled title="This version always uses passive mode">
+                  <label htmlFor="site-mode">Transfer mode</label>
+                  <select id="site-mode" value="passive" disabled title="This version always uses passive mode">
                     <option value="passive">Passive</option>
                   </select>
-                  <label>Certificate</label>
+                  <span className="form-label">Certificate</span>
                   <label className="check">
                     <input type="checkbox" checked={site.trustInvalidCertificate} onChange={(e) => update({ trustInvalidCertificate: e.target.checked })} />
                     Trust this server’s certificate even if it cannot be verified

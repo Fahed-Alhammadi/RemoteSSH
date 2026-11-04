@@ -22,10 +22,10 @@ struct DockView: View {
         let errors = model.log.lazy.filter { $0.kind == .error }.count
         return HStack(spacing: 2) {
             tab(.activity, "Activity", "text.alignleft") {
-                if errors > 0 { Badge(count: errors, color: Theme.danger) }
+                if errors > 0 { Badge(count: errors, color: Theme.danger, label: errors == 1 ? "error" : "errors") }
             }
             tab(.transfers, "Transfers", "arrow.up.arrow.down") {
-                if !t.queued.isEmpty { Badge(count: t.queued.count, color: Theme.accent) }
+                if !t.queued.isEmpty { Badge(count: t.queued.count, color: Theme.accent, label: "queued") }
             }
             tab(.terminal, "Terminal", "terminal") {
                 if let terminal = model.terminal {
@@ -89,6 +89,8 @@ struct DockView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(active ? "Hide \(title)" : "Show \(title)")
+        .accessibilityElement(children: .combine)
         .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
@@ -96,6 +98,7 @@ struct DockView: View {
 private struct Badge: View {
     let count: Int
     let color: Color
+    let label: String
 
     var body: some View {
         Text("\(count)")
@@ -105,5 +108,6 @@ private struct Badge: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
             .background(color.opacity(0.14), in: Capsule())
+            .accessibilityLabel("\(count) \(label)")
     }
 }

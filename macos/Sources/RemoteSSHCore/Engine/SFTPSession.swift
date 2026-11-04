@@ -15,6 +15,8 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
     private var client: SSHClient?
     private var sftp: SFTPClient?
 
+    public var isEncrypted: Bool { true }
+
     private static let chunkSize: UInt32 = 32 * 1024
     private static let pipelineDepth = 8
 
@@ -104,6 +106,9 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
             sftp = try await client.openSFTP()
             log(LogLine(.response, "SFTP subsystem started"))
         } catch {
+            // Don't leave the SSH connection open when only the SFTP subsystem failed.
+            try? await client?.close()
+            client = nil
             if validator.rejected { throw RemoteSSHError.hostKeyRejected }
             if "\(error)".localizedCaseInsensitiveContains("auth") {
                 throw RemoteSSHError.authenticationFailed(String(describing: error))
@@ -130,6 +135,10 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
         let names = try await sftp.listDirectory(atPath: path)
         var entries: [FileEntry] = []
         for component in names.flatMap(\.components) where component.filename != "." && component.filename != ".." {
+            guard FileEntry.isSafeName(component.filename) else {
+                log(LogLine(.error, "Skipped an entry with an invalid file name: \(component.filename.debugDescription)"))
+                continue
+            }
             var entry = Self.entry(from: component)
             if entry.isLink, let target = try? await sftp.getAttributes(at: RemotePath.join(path, component.filename)),
                let mode = target.permissions, mode & 0o170000 == 0o040000 {
@@ -264,15 +273,17 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
         if offset > 0 { try local.seek(toOffset: UInt64(offset)) } else { try local.truncate(atOffset: 0) }
 
         var position = offset
+        var chunkSize = Self.chunkSize
         while true {
             if cancel.isCancelled { throw RemoteSSHError.cancelled }
             // Issue several reads concurrently, then write them in order.
             let start = position
+            let length = chunkSize
             let chunks = try await withThrowingTaskGroup(of: (Int, ByteBuffer).self) { group in
                 for i in 0..<Self.pipelineDepth {
-                    let at = UInt64(start) + UInt64(i) * UInt64(Self.chunkSize)
+                    let at = UInt64(start) + UInt64(i) * UInt64(length)
                     if let total, Int64(at) >= total, i > 0 { break }
-                    group.addTask { (i, try await remote.read(from: at, length: Self.chunkSize)) }
+                    group.addTask { (i, try await remote.read(from: at, length: length)) }
                 }
                 var result: [(Int, ByteBuffer)] = []
                 for try await item in group { result.append(item) }
@@ -284,7 +295,14 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
                 if count == 0 { reachedEnd = true; break }
                 if let bytes = buffer.readBytes(length: count) { try local.write(contentsOf: bytes) }
                 position += Int64(count)
-                if count < Int(Self.chunkSize) { reachedEnd = true; break }
+                if count < Int(length) {
+                    // Servers may cap the read size, so a short read before the known size is not the end:
+                    // the rest of this batch was requested at offsets that are now wrong, so drop it, read
+                    // on from `position` and ask for what the server sends at once.
+                    reachedEnd = total == nil
+                    chunkSize = UInt32(count)
+                    break
+                }
             }
             progress(TransferProgress(transferred: position, total: total))
             if reachedEnd || (total != nil && position >= total!) { break }

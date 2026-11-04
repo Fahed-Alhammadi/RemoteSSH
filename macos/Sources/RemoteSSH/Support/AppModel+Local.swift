@@ -19,8 +19,8 @@ extension AppModel {
             error("Directory \(normalized) does not exist")
             return
         }
-        if sync, synchronizedBrowsing, connection == .connected, let base = syncBase, normalized.hasPrefix(base.local) {
-            let remote = base.remote + normalized.dropFirst(base.local.count)
+        if sync, synchronizedBrowsing, connection == .connected, let base = syncBase,
+           let remote = RemotePath.rebase(normalized, from: base.local, to: base.remote) {
             Task { await navigateRemote(to: remote) }
         }
         localPath = normalized
@@ -33,7 +33,7 @@ extension AppModel {
 
     func localMakeDirectory() {
         Task {
-            guard let name = await prompts.requestText(title: "Create Directory", message: "Name of the new directory:", initial: "New directory"),
+            guard let name = await prompts.requestText(title: "Create Directory", message: "Name of the new directory:", initial: "New directory", icon: "folder.badge.plus"),
                   !name.isEmpty else { return }
             do {
                 try FileManager.default.createDirectory(at: localURL(name), withIntermediateDirectories: false)
@@ -44,7 +44,7 @@ extension AppModel {
 
     func localRename(_ entry: FileEntry) {
         Task {
-            guard let name = await prompts.requestText(title: "Rename", message: "New name for \(entry.name):", initial: entry.name),
+            guard let name = await prompts.requestText(title: "Rename", message: "New name for \(entry.name):", initial: entry.name, icon: "pencil"),
                   !name.isEmpty, name != entry.name else { return }
             do {
                 try FileManager.default.moveItem(at: localURL(entry.name), to: localURL(name))

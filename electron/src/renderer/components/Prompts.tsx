@@ -1,18 +1,18 @@
 import { useState } from 'react'
-import { FilePen, Fingerprint, KeyRound, ShieldAlert, ShieldQuestion, SquareTerminal, TriangleAlert } from 'lucide-react'
+import { FilePen, Fingerprint, KeyRound, Pencil, ShieldAlert, ShieldQuestion, TriangleAlert, type LucideIcon } from 'lucide-react'
 import type { ChmodAnswer, OverwriteAnswer, PromptRequest, TrustAnswer } from '../../shared/types'
 import { formatDate, formatSize, Permissions } from '../../shared/util'
 import { Modal } from './ui'
 
 /** One dialog for whichever question is first in the queue. `done(null)` means dismissed. */
-export function PromptDialog({ request, done }: { request: PromptRequest; done: (value: unknown) => void }) {
+export function PromptDialog({ request, icon, done }: { request: PromptRequest; icon?: LucideIcon; done: (value: unknown) => void }) {
   switch (request.kind) {
     case 'text':
     case 'password':
-      return <TextPrompt request={request} done={done} />
+      return <TextPrompt request={request} icon={icon} done={done} />
     case 'confirm':
       return (
-        <Modal title={request.title} icon={TriangleAlert} onClose={() => done(false)} width={440}
+        <Modal title={request.title} icon={icon ?? TriangleAlert} onClose={() => done(false)} width={440}
           footer={<>
             <button type="button" onClick={() => done(false)}>Cancel</button>
             <button type="button" className={request.destructive ? 'danger' : 'primary'} autoFocus onClick={() => done(true)}>{request.confirm}</button>
@@ -59,10 +59,14 @@ export function PromptDialog({ request, done }: { request: PromptRequest; done: 
   }
 }
 
-function TextPrompt({ request, done }: { request: Extract<PromptRequest, { kind: 'text' | 'password' }>; done: (v: string | null) => void }) {
+function TextPrompt({ request, icon, done }: {
+  request: Extract<PromptRequest, { kind: 'text' | 'password' }>
+  icon?: LucideIcon
+  done: (v: string | null) => void
+}) {
   const [value, setValue] = useState(request.kind === 'text' ? request.initial : '')
   return (
-    <Modal title={request.title} icon={request.kind === 'password' ? KeyRound : SquareTerminal} onClose={() => done(null)} width={440}
+    <Modal title={request.title} icon={icon ?? (request.kind === 'password' ? KeyRound : Pencil)} onClose={() => done(null)} width={440}
       footer={<>
         <button type="button" onClick={() => done(null)}>Cancel</button>
         <button type="submit" form="text-prompt" className="primary">OK</button>
@@ -93,7 +97,9 @@ function TrustPrompt(props: { title: string; message: string; details: [string, 
       footer={<>
         <button type="button" onClick={() => props.done('reject')} autoFocus>Cancel</button>
         <button type="button" onClick={() => props.done('once')}>Trust Once</button>
-        <button type="button" className={props.warning ? 'danger' : 'primary'} onClick={() => props.done('always')}>Always Trust</button>
+        <button type="button" className={props.warning ? 'danger' : 'primary'} onClick={() => props.done('always')}>
+          {props.warning ? 'Trust New Key' : 'Always Trust'}
+        </button>
       </>}>
       <p className={props.warning ? 'warning' : undefined}>{props.message}</p>
       <dl className="details">
@@ -136,8 +142,8 @@ function OverwritePrompt({ request, done }: { request: Extract<PromptRequest, { 
         <label className="check"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> Always use this action</label>
         <span className="spacer" />
         <button type="button" onClick={() => done(null)}>Cancel</button>
-        <button type="button" className="primary" autoFocus
-          onClick={() => done({ action, applyToAll: all, newName: action === 'rename' && !all ? newName : undefined })}>OK</button>
+        <button type="button" className="primary" autoFocus disabled={action === 'rename' && !all && !newName.trim()}
+          onClick={() => done({ action, applyToAll: all, newName: action === 'rename' && !all ? newName.trim() : undefined })}>OK</button>
       </>}>
       <div className="file-cards">
         {side('Source', request.source, request.sourceSize, request.sourceModified)}
@@ -154,7 +160,7 @@ function OverwritePrompt({ request, done }: { request: Extract<PromptRequest, { 
       {action === 'rename' && !all && (
         <label className="field">
           <span>New name</span>
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} />
+          <input value={newName} spellCheck={false} onChange={(e) => setNewName(e.target.value)} />
         </label>
       )}
     </Modal>
@@ -176,7 +182,7 @@ function ChmodPrompt({ request, done }: { request: Extract<PromptRequest, { kind
     <Modal title={`Change permissions – ${title}`} icon={KeyRound} onClose={() => done(null)} width={460}
       footer={<>
         <button type="button" onClick={() => done(null)}>Cancel</button>
-        <button type="button" className="primary" onClick={() => done({ mode, recursive })}>Apply</button>
+        <button type="button" className="primary" disabled={!/^[0-7]{3}$/.test(text)} onClick={() => done({ mode, recursive })}>Apply</button>
       </>}>
       <div className="chmod-grid">
         <span />
@@ -193,7 +199,7 @@ function ChmodPrompt({ request, done }: { request: Extract<PromptRequest, { kind
       </div>
       <label className="field inline">
         <span>Numeric value</span>
-        <input className="mono" value={text} maxLength={3}
+        <input className="mono" value={text} maxLength={3} inputMode="numeric" aria-invalid={!/^[0-7]{3}$/.test(text)}
           onChange={(e) => {
             setText(e.target.value)
             if (/^[0-7]{3}$/.test(e.target.value)) setMode(parseInt(e.target.value, 8))

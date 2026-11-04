@@ -3,15 +3,16 @@ import Foundation
 /// Parses FTP directory listings: MLSD (RFC 3659), Unix `ls -l` style and DOS/IIS style,
 /// which together cover practically every server in use today.
 public enum ListingParser {
-    public static func parse(_ text: String, now: Date = Date()) -> [FileEntry] {
+    /// Entries whose name is not a plain file name (see `FileEntry.isSafeName`) are dropped and
+    /// reported to `rejected`.
+    public static func parse(_ text: String, now: Date = Date(), rejected: ((String) -> Void)? = nil) -> [FileEntry] {
         var result: [FileEntry] = []
         for rawLine in text.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
             let line = String(rawLine)
             if line.isEmpty || line.hasPrefix("total ") { continue }
             let entry = parseMLSD(line) ?? parseUnix(line, now: now) ?? parseDOS(line)
-            if let entry, entry.name != ".", entry.name != ".." {
-                result.append(entry)
-            }
+            guard let entry, entry.name != ".", entry.name != ".." else { continue }
+            if FileEntry.isSafeName(entry.name) { result.append(entry) } else { rejected?(entry.name) }
         }
         return result
     }

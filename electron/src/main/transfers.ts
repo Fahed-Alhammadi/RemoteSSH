@@ -3,7 +3,7 @@ import path from 'node:path'
 import { newID } from '../shared/site'
 import type { AppSettings, FileEntry, OverwriteAction, Site, TransferDirection, TransferItem, TransferStatus } from '../shared/types'
 import { errorMessage, RemotePath } from '../shared/util'
-import { localStat } from './engine/localFS'
+import { localChild, localStat } from './engine/localFS'
 import { ask, CancelledError, type Prompter, type RemoteSession } from './engine/session'
 import type { QueueStore } from './store/settingsStore'
 
@@ -34,6 +34,8 @@ export class TransferManager {
   private retries = new Map<string, number>()
   private overwriteForAll = new Map<TransferDirection, Exclude<OverwriteAction, 'ask'>>()
   private forceOverwrite = new Set<string>()
+  /** Running items the user removed: dropped once their worker has stopped. */
+  private removeWhenStopped = new Set<string>()
   private dirty = new Set<string>()
   private removed = new Set<string>()
   private flushTimer: NodeJS.Timeout | null = null
@@ -58,7 +60,8 @@ export class TransferManager {
   async enqueueDownload(entries: FileEntry[], remoteDir: string, localDir: string, site: Site): Promise<void> {
     for (const entry of entries) {
       const remote = RemotePath.join(remoteDir, entry.name)
-      const local = path.join(localDir, entry.name)
+      const local = this.localTarget(localDir, entry.name)
+      if (local == null) continue
       if (entry.isDirectory) await this.expandRemote(remote, local, site)
       else this.add(this.make(site.id, 'download', local, remote, entry.size))
     }
@@ -72,7 +75,8 @@ export class TransferManager {
       fs.mkdirSync(local, { recursive: true })
       for (const child of await session.list(remote)) {
         const r = RemotePath.join(remote, child.name)
-        const l = path.join(local, child.name)
+        const l = this.localTarget(local, child.name)
+        if (l == null) continue
         if (child.isDirectory) await this.expandRemote(r, l, site)
         else this.add(this.make(site.id, 'download', l, r, child.size))
       }
@@ -81,18 +85,34 @@ export class TransferManager {
     }
   }
 
+  /** Local path for a name from a server listing; names that would escape the folder are skipped. */
+  private localTarget(dir: string, name: string): string | null {
+    const local = localChild(dir, name)
+    if (local == null) this.host.error(`Skipped "${name}": not a valid local file name.`)
+    return local
+  }
+
   async enqueueUpload(localPaths: string[], remoteDir: string, site: Site): Promise<void> {
     for (const local of localPaths) {
       const st = localStat(local)
       if (!st) continue
       const remote = RemotePath.join(remoteDir, path.basename(local))
-      if (st.isDirectory) await this.expandLocal(local, remote, site)
+      if (st.isDirectory) await this.expandLocal(local, remote, site, new Set())
       else this.add(this.make(site.id, 'upload', local, remote, st.size))
     }
     this.resume()
   }
 
-  private async expandLocal(local: string, remote: string, site: Site): Promise<void> {
+  /** `seen` holds the real paths of the folders being expanded, so a symlink loop is not followed forever. */
+  private async expandLocal(local: string, remote: string, site: Site, seen: Set<string>): Promise<void> {
+    let real: string
+    try {
+      real = fs.realpathSync(local)
+    } catch {
+      return
+    }
+    if (seen.has(real)) return this.host.error(`Skipped ${local}: it links back to a folder that is already being uploaded.`)
+    seen.add(real)
     await this.host.browseSession(site.id)?.mkdir(remote).catch(() => undefined) // may already exist
     let names: string[]
     try {
@@ -105,9 +125,10 @@ export class TransferManager {
       const r = RemotePath.join(remote, name)
       const st = localStat(l)
       if (!st) continue
-      if (st.isDirectory) await this.expandLocal(l, r, site)
+      if (st.isDirectory) await this.expandLocal(l, r, site, seen)
       else this.add(this.make(site.id, 'upload', l, r, st.size))
     }
+    seen.delete(real)
   }
 
   /** View/Edit re-upload: skips the "file exists" question. */
@@ -130,6 +151,8 @@ export class TransferManager {
   // MARK: Queue control
 
   resume(): void {
+    // "Apply to all" answers belong to the batch that is running; a later batch is asked again.
+    if (![...this.items.values()].some((i) => i.status === 'queued' || i.status === 'transferring')) this.overwriteForAll.clear()
     if (!this.processing) return
     let free = this.host.settings().maxConcurrentTransfers - this.active
     for (const item of this.items.values()) {
@@ -154,8 +177,12 @@ export class TransferManager {
   remove(ids: string[]): void {
     this.cancel(ids)
     for (const id of ids) {
-      if (this.items.get(id)?.status === 'transferring') continue
+      if (this.items.get(id)?.status === 'transferring') {
+        this.removeWhenStopped.add(id)
+        continue
+      }
       this.items.delete(id)
+      this.retries.delete(id)
       this.removed.add(id)
     }
     this.changed()
@@ -175,8 +202,12 @@ export class TransferManager {
     this.remove([...this.items.values()].filter((i) => i.status === 'finished').map((i) => i.id))
   }
 
+  /** Stops running transfers and marks waiting ones interrupted too, so "stop all" leaves nothing pending. */
   stopAll(): void {
     this.processing = false
+    for (const item of this.items.values()) {
+      if (item.status === 'queued') this.set(item.id, { error: 'Interrupted by user' }, 'failed')
+    }
     this.cancel([...this.items.values()].filter((i) => i.status === 'transferring').map((i) => i.id))
     this.changed()
   }
@@ -256,7 +287,8 @@ export class TransferManager {
     } catch (e) {
       const message = errorMessage(e)
       if (e instanceof CancelledError || abort.signal.aborted) {
-        this.set(id, { error: 'Interrupted by user' }, 'failed')
+        // e.g. "Interrupted by user", or a password prompt / host key the user declined (not retried).
+        this.set(id, { error: e instanceof CancelledError ? message : 'Interrupted by user' }, 'failed')
         if (session) this.release(session, site.id)
         return
       }
@@ -274,6 +306,7 @@ export class TransferManager {
       }
     } finally {
       this.aborts.delete(id)
+      if (this.removeWhenStopped.delete(id)) this.remove([id])
       this.resume()
     }
   }
@@ -335,7 +368,9 @@ export class TransferManager {
       }
       case 'rename':
         if (item.direction === 'download') {
-          item.localPath = newName ? path.join(path.dirname(item.localPath), newName) : uniqueLocalName(item.localPath)
+          // The dialog suggests the existing name; keeping it (or naming another existing file) must not overwrite.
+          const target = (newName && localChild(path.dirname(item.localPath), newName)) || item.localPath
+          item.localPath = localStat(target) ? uniqueLocalName(target) : target
         } else {
           const name =
             newName ??
@@ -346,7 +381,9 @@ export class TransferManager {
               initial: RemotePath.lastComponent(item.remotePath),
             }))
           if (!name) return null
-          item.remotePath = RemotePath.join(RemotePath.parent(item.remotePath), name)
+          const target = RemotePath.join(RemotePath.parent(item.remotePath), name)
+          if (await session.stat(target)) throw new CancelledError(`${target} already exists; choose another name.`)
+          item.remotePath = target
         }
         this.changed(item.id)
         return 0

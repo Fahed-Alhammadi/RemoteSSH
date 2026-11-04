@@ -37,6 +37,12 @@ public struct FileEntry: Identifiable, Hashable, Sendable {
 
     public var isHidden: Bool { name.hasPrefix(".") }
 
+    /// Whether a name from a server listing is a single plain file name. A malicious server could
+    /// list "../../.zshrc" or "a/b"; joined to a local folder, such a name would write outside it.
+    public static func isSafeName(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".." && !name.unicodeScalars.contains { $0 == "/" || $0 == "\0" }
+    }
+
     public var fileType: String {
         if isDirectory { return "Directory" }
         let ext = (name as NSString).pathExtension
@@ -105,6 +111,27 @@ public enum RemotePath {
         var trimmed = path
         while trimmed.count > 1 && trimmed.hasSuffix("/") { trimmed.removeLast() }
         return trimmed.split(separator: "/").last.map(String.init) ?? "/"
+    }
+
+    /// `path` moved from under `base` to under `target`, or nil when it is not inside `base`.
+    /// Matches whole components: "/www2" is not inside "/www".
+    public static func rebase(_ path: String, from base: String, to target: String) -> String? {
+        let trimmedBase = base.count > 1 && base.hasSuffix("/") ? String(base.dropLast()) : base
+        let relative: Substring
+        if path == trimmedBase { relative = "" }
+        else if trimmedBase == "/" { relative = path.hasPrefix("/") ? path.dropFirst() : Substring(path) }
+        else if path.hasPrefix(trimmedBase + "/") { relative = path.dropFirst(trimmedBase.count + 1) }
+        else { return nil }
+        return relative.isEmpty ? target : join(target, String(relative))
+    }
+
+    /// Percent-encodes each segment for use in a URL ("#", "?", "%" and spaces included).
+    public static func urlEncoded(_ path: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/;?#%")
+        return path.split(separator: "/", omittingEmptySubsequences: false)
+            .map { $0.addingPercentEncoding(withAllowedCharacters: allowed) ?? String($0) }
+            .joined(separator: "/")
     }
 
     public static func normalize(_ path: String) -> String {

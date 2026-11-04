@@ -8,7 +8,7 @@ enum PromptKind: Identifiable {
     case certificate(host: String, port: Int, reason: String)
     case password(prompt: String)
     case overwrite(file: String, source: FileInfo, target: FileInfo, direction: TransferDirection)
-    case text(title: String, message: String, initial: String)
+    case text(title: String, message: String, initial: String, icon: String)
 
     struct FileInfo {
         var path: String
@@ -22,7 +22,7 @@ enum PromptKind: Identifiable {
         case .certificate(let h, let p, _): return "cert-\(h):\(p)"
         case .password(let p): return "pw-\(p)"
         case .overwrite(let f, _, _, _): return "ow-\(f)"
-        case .text(let t, _, _): return "text-\(t)"
+        case .text(let t, _, _, _): return "text-\(t)"
         }
     }
 }
@@ -80,8 +80,8 @@ final class PromptCenter: SessionPrompter {
         return nil
     }
 
-    func requestText(title: String, message: String, initial: String = "") async -> String? {
-        if case .text(let t) = await ask(.text(title: title, message: message, initial: initial)) { return t }
+    func requestText(title: String, message: String, initial: String = "", icon: String = "character.cursor.ibeam") async -> String? {
+        if case .text(let t) = await ask(.text(title: title, message: message, initial: initial, icon: icon)) { return t }
         return nil
     }
 }

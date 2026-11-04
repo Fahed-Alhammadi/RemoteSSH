@@ -69,8 +69,7 @@ struct SiteManagerView: View {
                         Label {
                             Text(site.name)
                         } icon: {
-                            Image(systemName: site.serverProtocol == .sftp ? "lock.rectangle.stack.fill" : "externaldrive.connected.to.line.below.fill")
-                                .foregroundStyle(site.serverProtocol == .sftp ? Color.green : Color.blue)
+                            SiteIcon(site: site)
                         }
                         .tag(site.id)
                     }
@@ -115,7 +114,17 @@ struct SiteManagerView: View {
     private func general(_ site: Binding<Site>) -> some View {
         TextField("Name:", text: site.name)
         TextField("Folder:", text: site.folder, prompt: Text("e.g. Work/Production"))
-        Picker("Protocol:", selection: site.serverProtocol) {
+        Picker("Protocol:", selection: Binding(
+            get: { site.wrappedValue.serverProtocol },
+            set: { proto in
+                site.wrappedValue.serverProtocol = proto
+                // Key files are SFTP-only and anonymous login is FTP-only: fall back to a normal login.
+                let logon = site.wrappedValue.logonType
+                if (proto == .ftp && logon == .keyFile) || (proto == .sftp && logon == .anonymous) {
+                    site.wrappedValue.logonType = .normal
+                }
+            }
+        )) {
             ForEach(ServerProtocol.allCases) { Text($0.displayName).tag($0) }
         }
         HStack {
@@ -129,7 +138,7 @@ struct SiteManagerView: View {
             }
         }
         Picker("Logon Type:", selection: site.logonType) {
-            ForEach(LogonType.allCases.filter { site.wrappedValue.serverProtocol == .sftp || $0 != .keyFile }) {
+            ForEach(LogonType.allCases.filter { site.wrappedValue.serverProtocol == .sftp ? $0 != .anonymous : $0 != .keyFile }) {
                 Text($0.displayName).tag($0)
             }
         }
@@ -241,5 +250,7 @@ struct SiteManagerView: View {
         }
         model.sites = sites
         model.saveSites()
+        // Pooled transfer connections were made with the old settings (host, user, password).
+        model.transfers.closeIdle()
     }
 }

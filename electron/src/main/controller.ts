@@ -20,8 +20,8 @@ import type {
 } from '../shared/types'
 import { errorMessage, Permissions, RemotePath } from '../shared/util'
 import { FTPSession } from './engine/ftpSession'
-import { listLocal, localStat } from './engine/localFS'
-import { ask, SessionError, type Prompter, type RemoteSession, type SessionContext } from './engine/session'
+import { listLocal, localChild, localStat, opensAsProgram } from './engine/localFS'
+import { ask, CancelledError, SessionError, type Prompter, type RemoteSession, type SessionContext } from './engine/session'
 import { SFTPSession } from './engine/sftpSession'
 import { KnownHostsStore } from './store/knownHosts'
 import { ARCHIVE_EXTENSION, decodeArchive, encodeArchive } from './store/siteArchive'
@@ -43,7 +43,11 @@ export class Controller implements Prompter {
   /** Quickconnect sites (not in the site manager) and passwords entered this run. */
   private transientSites = new Map<string, Site>()
   private sessionPasswords = new Map<string, string>()
+  /** FTP sites ("explicit TLS if available") that used TLS this run; later connections must use it too. */
+  private tlsSites = new Set<string>()
   private pendingPrompts = new Map<number, (value: unknown) => void>()
+  /** Bumped by every connect and disconnect, so a superseded `open()` can tell it is stale. */
+  private connectGeneration = 0
   private promptID = 0
   private logBuffer: LogLine[] = []
   private logTimer: NodeJS.Timeout | null = null
@@ -51,9 +55,11 @@ export class Controller implements Prompter {
   private edits = new EditWatcher(this)
   private terminals = new Terminals({
     connect: async (site) => {
-      const s = this.makeSession(site, await this.passwordFor(site), true)
+      const password = await this.passwordFor(site)
+      const s = this.makeSession(site, password, true)
       if (!(s instanceof SFTPSession)) throw new SessionError('The terminal needs an SFTP (SSH) site.')
       await s.connect()
+      this.connected(site, s, password)
       return s
     },
     send: (channel, payload) => this.send(channel, payload),
@@ -72,8 +78,10 @@ export class Controller implements Prompter {
         settings: () => this.settingsStore.value,
         site: (id) => this.findSite(id),
         connectSession: async (site) => {
-          const s = this.makeSession(site, await this.passwordFor(site), true)
+          const password = await this.passwordFor(site)
+          const s = this.makeSession(site, password, true)
           await s.connect()
+          this.connected(site, s, password)
           return s
         },
         browseSession: (siteID) => (this.site?.id === siteID && this.session && !this.session.closed ? this.session : null),
@@ -254,6 +262,8 @@ export class Controller implements Prompter {
       }
     }
     await fs.promises.writeFile(result.filePath, encodeArchive(state.sites, passwords), { mode: 0o600 })
+    // `mode` only applies to new files; an overwritten export keeps its old (maybe world-readable) mode.
+    await fs.promises.chmod(result.filePath, 0o600).catch(() => undefined)
     this.log('status', `Exported ${state.sites.length} sites to ${result.filePath}`)
   }
 
@@ -279,9 +289,17 @@ export class Controller implements Prompter {
       if (this.transientSites.has(site.id) || this.sites.state().canStorePasswords) return ''
     }
     const pw = await ask(this, { kind: 'password', title: 'Enter password', message: `Password for ${displayAddress(site)}:` })
-    if (pw == null) throw new SessionError('Connection cancelled.')
-    this.sessionPasswords.set(site.id, pw)
+    if (pw == null) throw new CancelledError('Connection cancelled.')
     return pw
+  }
+
+  /**
+   * After a successful login: caches the password for this run (so a mistyped one is asked again) and
+   * remembers that FTP TLS worked, so a later downgrade to plain FTP for this site is refused.
+   */
+  private connected(site: Site, session: RemoteSession, password: string): void {
+    if (site.logonType !== 'anonymous' && site.logonType !== 'keyFile') this.sessionPasswords.set(site.id, password)
+    if (site.serverProtocol === 'ftp' && session.secure) this.tlsSites.add(site.id)
   }
 
   private makeSession(site: Site, password: string, quiet = false): RemoteSession {
@@ -294,6 +312,7 @@ export class Controller implements Prompter {
         keepAlive: s.keepAlive,
         downloadLimit: s.downloadLimitKiB * 1024,
         uploadLimit: s.uploadLimitKiB * 1024,
+        requireTLS: this.tlsSites.has(site.id),
       },
       prompter: this,
       // Transfer connections only report errors, so the log stays readable.
@@ -311,37 +330,47 @@ export class Controller implements Prompter {
 
   private async open(site: Site, password: string | null, initialPath: string | null): Promise<ConnectResult> {
     this.disconnect()
+    const generation = this.connectGeneration
+    // False once another connect or a disconnect started; this attempt must then leave the state alone.
+    const current = () => generation === this.connectGeneration
     this.site = site
     this.send(Events.connection, { state: 'connecting', site, secure: false } satisfies ConnectionInfo)
+    let session: RemoteSession | null = null
     try {
       const pw = password ?? (await this.passwordFor(site))
-      const session = this.makeSession(site, pw)
-      this.session = session
-      session.onClose = () => {
-        if (this.session !== session) return
+      if (!current()) throw new SessionError('Connection cancelled.')
+      const s = this.makeSession(site, pw)
+      session = s
+      this.session = s
+      s.onClose = () => {
+        if (this.session !== s) return
         this.log('error', 'Connection closed by server')
         this.send(Events.connection, this.connectionInfo())
       }
-      await session.connect()
-      if (this.session !== session) throw new SessionError('Connection cancelled.')
-      if (password != null && site.logonType !== 'anonymous') this.sessionPasswords.set(site.id, password)
+      await s.connect()
+      if (!current()) throw new SessionError('Connection cancelled.')
+      this.connected(site, s, pw)
       let remote: RemoteListing | null = null
       const start = initialPath || site.defaultRemoteDirectory
       try {
-        remote = await this.listRemote(start || (await session.pwd()))
+        remote = await this.listRemote(start || (await s.pwd()))
       } catch (e) {
         if (!start) throw e
         this.log('error', `${start}: ${errorMessage(e)}`)
-        remote = await this.listRemote(await session.pwd())
+        remote = await this.listRemote(await s.pwd())
       }
+      if (!current()) throw new SessionError('Connection cancelled.')
       const local = site.defaultLocalDirectory && localStat(site.defaultLocalDirectory)?.isDirectory ? site.defaultLocalDirectory : null
       this.send(Events.connection, this.connectionInfo())
       return { connection: this.connectionInfo(), remote, localPath: local }
     } catch (e) {
-      this.log('error', errorMessage(e))
-      this.session?.close()
-      this.session = null
-      this.send(Events.connection, this.connectionInfo())
+      // Only this attempt's own session is closed; a newer connection is never touched.
+      if (current()) {
+        this.log('error', errorMessage(e))
+        this.session = null
+      }
+      session?.close()
+      if (current()) this.send(Events.connection, this.connectionInfo())
       throw e
     }
   }
@@ -371,6 +400,7 @@ export class Controller implements Prompter {
   }
 
   disconnect(): void {
+    this.connectGeneration++
     const s = this.session
     this.session = null
     if (s) {
@@ -441,9 +471,16 @@ export class Controller implements Prompter {
     const site = this.requireSite()
     const remotePath = RemotePath.join(dir, entry.name)
     const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'remotessh-edit-'))
-    const local = path.join(tmpDir, entry.name)
+    const local = localChild(tmpDir, entry.name)
+    if (local == null) throw new SessionError(`"${entry.name}" is not a valid local file name.`)
     await this.remote((s) => s.download(remotePath, local, 0, new AbortController().signal, () => undefined))
     this.edits.watch(local, remotePath, site.id)
+    // Opening a script or program "with its default app" would run it, so show it in its folder instead.
+    if (opensAsProgram(entry.name)) {
+      shell.showItemInFolder(local)
+      this.log('status', `${entry.name} would run as a program, so it is shown in its folder instead. Open it in an editor; saved changes are offered for upload.`)
+      return
+    }
     const error = await shell.openPath(local)
     if (error) throw new SessionError(error)
   }

@@ -17,6 +17,8 @@ struct FileTable: View {
     let showHidden: Bool
     let comparison: [String: DirectoryComparison.State]
     let showParent: Bool
+    /// A listing is on its way: no empty-folder message yet.
+    var loading = false
     @Binding var selection: Set<FileEntry.ID>
     let itemProvider: (FileEntry) -> NSItemProvider
     let onOpen: (FileEntry) -> Void
@@ -42,15 +44,24 @@ struct FileTable: View {
         VStack(spacing: 0) {
             Table(of: FileEntry.self, selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Name", value: \.name, comparator: .localizedStandard) { e in
+                    let mark = Self.mark(comparison[e.name])
                     HStack(spacing: 6) {
+                        // Comparison mark: a 3px edge plus the tooltip, so the state is not colour-only text.
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(mark?.color ?? .clear)
+                            .frame(width: 3, height: 16)
+                            .accessibilityHidden(true)
                         FileIcon(entry: e)
                         Text(e.name)
-                            .foregroundStyle(color(for: e))
+                            .foregroundStyle(mark?.color ?? .primary)
                             .lineLimit(1)
                         if e.isLink, let target = e.linkTarget {
                             Text("→ \(target)").foregroundStyle(.tertiary).lineLimit(1)
                         }
                     }
+                    .help(mark.map { "\(e.name): \($0.text)" } ?? e.name)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityValue(mark?.text ?? "")
                 }
                 .width(min: 160, ideal: 260)
                 TableColumn("Size", value: \.sortSize) { e in
@@ -78,6 +89,11 @@ struct FileTable: View {
                     }
                 }
             }
+            .overlay {
+                if let empty = emptyMessage(rows) {
+                    Text(empty).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
+                }
+            }
             .contextMenu(forSelectionType: FileEntry.ID.self) { ids in
                 menu(ids)
             } primaryAction: { ids in
@@ -87,12 +103,15 @@ struct FileTable: View {
 
             Divider()
             HStack(spacing: 6) {
-                Image(systemName: "line.3.horizontal.decrease.circle").foregroundStyle(.secondary)
+                Image(systemName: "line.3.horizontal.decrease.circle").foregroundStyle(.secondary).accessibilityHidden(true)
                 TextField("Filter", text: $filter).textFieldStyle(.plain)
+                    .accessibilityLabel("Filter by name")
                 if !filter.isEmpty {
                     Button { filter = "" } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
+                        .help("Clear the filter")
+                        .accessibilityLabel("Clear filter")
                 }
                 Spacer()
                 Text(summary(rows)).foregroundStyle(.secondary)
@@ -101,6 +120,14 @@ struct FileTable: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
         }
+    }
+
+    /// Why no files are listed (same wording as the Electron app), or nil when some are.
+    private func emptyMessage(_ rows: [FileEntry]) -> String? {
+        guard !loading, !rows.contains(where: { $0.name != ".." }) else { return nil }
+        if entries.isEmpty { return "This folder is empty." }
+        if !filter.isEmpty { return "No names contain “\(filter)”." }
+        return "Only hidden files are in this folder."
     }
 
     private func summary(_ rows: [FileEntry]) -> String {
@@ -118,12 +145,13 @@ struct FileTable: View {
         return "\(prefix)\(files) file\(files == 1 ? "" : "s"), \(dirs) folder\(dirs == 1 ? "" : "s") · \(Format.bytes(total))"
     }
 
-    private func color(for e: FileEntry) -> Color {
-        switch comparison[e.name] {
-        case .onlyHere: return Theme.success
-        case .different: return Theme.danger
-        case .newer: return Theme.warning
-        default: return .primary
+    /// Same colours and wording as the Electron app's comparison marks.
+    private static func mark(_ state: DirectoryComparison.State?) -> (color: Color, text: String)? {
+        switch state {
+        case .onlyHere: return (Theme.caution, "Only in this pane")
+        case .different: return (Theme.danger, "Size differs from the other pane")
+        case .newer: return (Theme.success, "Newer than in the other pane")
+        case .same, nil: return nil
         }
     }
 }
@@ -217,6 +245,7 @@ struct RemotePane: View {
                     showHidden: model.settings.showHiddenFiles,
                     comparison: model.comparison(forRemote: true),
                     showParent: connected && model.remotePath != "/",
+                    loading: model.remoteBusy,
                     selection: $selection,
                     itemProvider: { e in NSItemProvider(object: (remoteDragPrefix + RemotePath.join(model.remotePath, e.name)) as NSString) },
                     onOpen: open,

@@ -22,6 +22,8 @@ final class TransferManager {
     @ObservationIgnored private var saveScheduled = false
     /// Items that skip the "file exists" check (View/Edit re-uploads).
     @ObservationIgnored private var forceOverwrite: Set<UUID> = []
+    /// Running items the user removed; they leave the list once their worker stops.
+    @ObservationIgnored private var removeWhenStopped: Set<UUID> = []
 
     init(model: AppModel) {
         self.model = model
@@ -58,7 +60,10 @@ final class TransferManager {
             for child in try await session.list(remote) {
                 let r = RemotePath.join(remote, child.name)
                 let l = (local as NSString).appendingPathComponent(child.name)
-                if child.isDirectory {
+                if child.isDirectory && child.isLink {
+                    // Links to folders can loop (e.g. "up -> .."), which would recurse forever.
+                    model.status("Skipped \(r): links to folders inside a folder are not followed")
+                } else if child.isDirectory {
                     await expandRemoteDirectory(remote: r, local: l, site: site)
                 } else {
                     add(TransferItem(siteID: site.id, direction: .download, localPath: l, remotePath: r, size: child.size))
@@ -76,7 +81,8 @@ final class TransferManager {
                 var isDir: ObjCBool = false
                 guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir) else { continue }
                 if isDir.boolValue {
-                    await expandLocalDirectory(local: path, remote: remote, site: site)
+                    var visited: Set<String> = []
+                    await expandLocalDirectory(local: path, remote: remote, site: site, visited: &visited)
                 } else {
                     add(TransferItem(siteID: site.id, direction: .upload, localPath: path, remotePath: remote, size: LocalFileSystem.size(path)))
                 }
@@ -85,7 +91,12 @@ final class TransferManager {
         }
     }
 
-    private func expandLocalDirectory(local: String, remote: String, site: Site) async {
+    /// `visited` holds the real paths of folders already expanded, so symbolic link loops end.
+    private func expandLocalDirectory(local: String, remote: String, site: Site, visited: inout Set<String>) async {
+        guard visited.insert(URL(fileURLWithPath: local).resolvingSymlinksInPath().path).inserted else {
+            model.status("Skipped \(local): folder already included (symbolic link loop)")
+            return
+        }
         if let session = model.session { try? await session.makeDirectory(remote) }  // may already exist
         guard let children = try? FileManager.default.contentsOfDirectory(atPath: local) else { return }
         for name in children.sorted() {
@@ -94,7 +105,7 @@ final class TransferManager {
             var isDir: ObjCBool = false
             FileManager.default.fileExists(atPath: l, isDirectory: &isDir)
             if isDir.boolValue {
-                await expandLocalDirectory(local: l, remote: r, site: site)
+                await expandLocalDirectory(local: l, remote: r, site: site, visited: &visited)
             } else {
                 add(TransferItem(siteID: site.id, direction: .upload, localPath: l, remotePath: r, size: LocalFileSystem.size(l)))
             }
@@ -131,12 +142,24 @@ final class TransferManager {
         if processing { resume() }
     }
 
+    /// Stops running transfers; waiting ones are marked as interrupted so they don't start later.
     func cancel(_ ids: Set<UUID>) {
         for id in ids { cancelTokens[id]?.cancel() }
+        for item in items where ids.contains(item.id) && item.status == .queued {
+            setStatus(item.id, .failed, error: RemoteSSHError.cancelled.localizedDescription)
+        }
+    }
+
+    /// Drops pooled connections, e.g. after sites were edited, so new transfers use the new settings.
+    func closeIdle() {
+        let pools = idleSessions.values.flatMap { $0 }
+        idleSessions.removeAll()
+        Task { for session in pools { await session.disconnect() } }
     }
 
     func remove(_ ids: Set<UUID>) {
         cancel(ids)
+        removeWhenStopped.formUnion(items.filter { ids.contains($0.id) && $0.status == .transferring }.map(\.id))
         items.removeAll { ids.contains($0.id) && $0.status != .transferring }
         scheduleSave()
     }
@@ -146,6 +169,7 @@ final class TransferManager {
             items[i].status = .queued
             items[i].error = nil
             items[i].transferred = 0
+            retries[items[i].id] = nil
         }
         scheduleSave()
         resume()
@@ -199,7 +223,13 @@ final class TransferManager {
         defer {
             cancelTokens[id] = nil
             speeds[id] = nil
+            if removeWhenStopped.remove(id) != nil {
+                items.removeAll { $0.id == id }
+                scheduleSave()
+            }
             resume()
+            // "Apply to all" answers last for one batch of transfers, not the rest of the session.
+            if queued.isEmpty { overwriteForAll.removeAll() }
         }
 
         var session: RemoteSession?
@@ -211,27 +241,39 @@ final class TransferManager {
                 release(s, siteID: site.id)
                 return
             }
+            // "Rename file" changes the target path; transfer to the new name, not over the existing file.
+            let target = items.first(where: { $0.id == id }) ?? item
             let started = Date()
             let throttle = ProgressThrottle()
             let progress: ProgressHandler = { [weak self] p in
                 guard throttle.shouldEmit(p) else { return }
                 Task { @MainActor in self?.update(id, progress: p, offset: offset, started: started) }
             }
-            if item.direction == .download {
-                try FileManager.default.createDirectory(atPath: (item.localPath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-                try await s.download(item.remotePath, to: URL(fileURLWithPath: item.localPath), resumeFrom: offset, cancel: token, progress: progress)
+            if target.direction == .download {
+                try FileManager.default.createDirectory(atPath: (target.localPath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+                try await s.download(target.remotePath, to: URL(fileURLWithPath: target.localPath), resumeFrom: offset, cancel: token, progress: progress)
             } else {
-                try await s.upload(URL(fileURLWithPath: item.localPath), to: item.remotePath, resumeFrom: offset, cancel: token, progress: progress)
+                try await s.upload(URL(fileURLWithPath: target.localPath), to: target.remotePath, resumeFrom: offset, cancel: token, progress: progress)
             }
             setStatus(id, .finished)
             release(s, siteID: site.id)
-            refreshPanes(for: item)
+            refreshPanes(for: target)
         } catch {
             let message = error.localizedDescription
             if case RemoteSSHError.cancelled = error {
                 setStatus(id, .failed, error: message)
                 if let session { release(session, siteID: site.id) }
                 return
+            }
+            // The user rejected the host key or certificate, cancelled a prompt, or the login is wrong:
+            // retrying would only ask again or fail the same way.
+            switch error {
+            case RemoteSSHError.hostKeyRejected, RemoteSSHError.certificateRejected, RemoteSSHError.authenticationFailed:
+                if let session { await session.disconnect() }
+                model.error("\(item.fileName): \(message)")
+                setStatus(id, .failed, error: message)
+                return
+            default: break
             }
             // Connection-level failures: drop the session and retry a few times.
             if let session { await session.disconnect() }
@@ -300,10 +342,18 @@ final class TransferManager {
             if item.direction == .download {
                 let newPath = LocalFileSystem.uniqueName(for: item.localPath) { FileManager.default.fileExists(atPath: $0) }
                 if let i = index(item.id) { items[i].localPath = newPath }
-            } else if let name = await model.prompts.requestText(title: "Rename file", message: "Enter a new name for the remote file:", initial: RemotePath.lastComponent(of: item.remotePath)) {
-                if let i = index(item.id) { items[i].remotePath = RemotePath.join(RemotePath.parent(of: item.remotePath), name) }
             } else {
-                return nil
+                // Ask until the name is free: keeping the suggested name (or naming another existing file) would overwrite it.
+                var message = "Enter a new name for the remote file:"
+                while true {
+                    guard let name = await model.prompts.requestText(title: "Rename file", message: message, initial: RemotePath.lastComponent(of: item.remotePath), icon: "pencil") else { return nil }
+                    let newPath = RemotePath.join(RemotePath.parent(of: item.remotePath), name)
+                    if !name.isEmpty, !name.contains("/"), try await session.fileSize(newPath) == nil {
+                        if let i = index(item.id) { items[i].remotePath = newPath }
+                        break
+                    }
+                    message = "“\(name)” already exists or is not a valid name. Enter another name:"
+                }
             }
             return 0
         }
@@ -334,8 +384,8 @@ private final class ProgressThrottle: @unchecked Sendable {
     private static let interval: UInt64 = 100_000_000  // ns
 
     func shouldEmit(_ p: TransferProgress) -> Bool {
-        let now = DispatchTime.now().uptimeNanoseconds
         lock.lock(); defer { lock.unlock() }
+        let now = DispatchTime.now().uptimeNanoseconds  // read under the lock so `now - last` can't underflow
         if p.total == p.transferred || now - last >= Self.interval {
             last = now
             return true

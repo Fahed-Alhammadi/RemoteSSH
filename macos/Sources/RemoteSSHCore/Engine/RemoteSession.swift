@@ -59,6 +59,8 @@ public final class CancelToken: @unchecked Sendable {
 
 public protocol RemoteSession: AnyObject, Sendable {
     var site: Site { get }
+    /// Whether the connection is encrypted (SFTP always; FTP depends on the server, see `FTPSession`).
+    var isEncrypted: Bool { get }
     func connect() async throws
     func disconnect() async
     /// Absolute path of the login (home) directory.

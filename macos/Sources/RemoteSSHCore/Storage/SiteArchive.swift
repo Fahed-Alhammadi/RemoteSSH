@@ -28,7 +28,18 @@ public struct SiteArchive: Codable, Sendable {
 
     public static func decode(_ data: Data) throws -> SiteArchive {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        // Exports are written without fractional seconds, but accept them too (e.g. a hand-made file
+        // using JavaScript's toISOString()); `.iso8601` alone would reject the whole archive.
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let text = try decoder.singleValueContainer().decode(String.self)
+            let plain = ISO8601DateFormatter()
+            let fractional = ISO8601DateFormatter()
+            fractional.formatOptions.insert(.withFractionalSeconds)
+            guard let date = plain.date(from: text) ?? fractional.date(from: text) else {
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid date \(text)"))
+            }
+            return date
+        }
         let archive: SiteArchive
         do {
             archive = try decoder.decode(SiteArchive.self, from: data)
