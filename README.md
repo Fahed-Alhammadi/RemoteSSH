@@ -1,51 +1,96 @@
-<p align="center"><img src="assets/icon.png" width="128" alt="RemoteSSH icon"></p>
+<p align="center"><img src="assets/icon.png" alt="" width="96"></p>
 
 <h1 align="center">RemoteSSH</h1>
 
-<p align="center">A fast, modern <b>SFTP, FTP and FTPS</b> file transfer client for <b>macOS, Windows and Linux</b>.<br><a href="https://fahed-alhammadi.github.io/RemoteSSH/">fahed-alhammadi.github.io/RemoteSSH</a></p>
+<p align="center">A free SFTP, FTP and FTPS client for macOS, Windows and Linux.<br>Your computer and your server side by side, with a transfer queue and an SSH terminal.</p>
 
 <p align="center">
-  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest"><img alt="Download the latest release" src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?label=Download&color=0F766E&style=for-the-badge"></a>
+  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest"><img src="https://img.shields.io/github/v/release/Fahed-Alhammadi/RemoteSSH?label=latest&color=2F5FD0" alt="Latest release"></a>
+  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/actions/workflows/macos.yml"><img src="https://github.com/Fahed-Alhammadi/RemoteSSH/actions/workflows/macos.yml/badge.svg?branch=main" alt="macOS build"></a>
+  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/actions/workflows/windows.yml"><img src="https://github.com/Fahed-Alhammadi/RemoteSSH/actions/workflows/windows.yml/badge.svg?branch=main" alt="Windows build"></a>
+  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/actions/workflows/linux.yml"><img src="https://github.com/Fahed-Alhammadi/RemoteSSH/actions/workflows/linux.yml/badge.svg?branch=main" alt="Linux build"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-141A23" alt="MIT License"></a>
 </p>
 
-RemoteSSH has two code bases that share one feature set and one site file format:
+<p align="center">
+  <a href="https://fahed-alhammadi.github.io/RemoteSSH/">Website</a> ·
+  <a href="#download">Download</a> ·
+  <a href="#features">Features</a> ·
+  <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/issues">Report a problem</a>
+</p>
 
-| Platform | App | Folder |
-| --- | --- | --- |
-| macOS 15+ | Native SwiftUI app | [`macos/`](macos) |
-| Windows 10+ (x64, arm64) | Electron + React app from [`electron/`](electron), packaged by [`windows/`](windows) | [`windows/`](windows) |
-| Linux (x64, arm64) | Electron + React app from [`electron/`](electron), packaged by [`linux/`](linux) | [`linux/`](linux) |
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app-dark.webp">
+    <img src="docs/images/app-light.webp" alt="RemoteSSH connected over SFTP: saved sites in the sidebar, the local and remote folders side by side with changed files marked, and the activity log below." width="860">
+  </picture>
+</p>
 
-## Features
+## Why RemoteSSH
 
-- **Connect:** type an address such as `sftp://user@host:port/path` and press Connect, or save servers in the Site Manager with folders, logon types (anonymous, normal, ask for password, key file) and default folders. Saved sites are listed in a sidebar: one click connects, and the connected site is marked.
-- **Secure storage:** saved passwords go into the system keychain (macOS Keychain, Windows DPAPI, or the Secret Service/KWallet on Linux). If no keyring is available, RemoteSSH asks for the password instead of saving it in plain text.
-- **SFTP:** password or key-file login with Ed25519 and RSA keys (rsa-sha2-256/512), including passphrase-protected keys. Host keys are checked against SHA-256 fingerprints, and you are warned if a key changes.
-- **FTP/FTPS:** explicit or implicit TLS. Before any password is sent, you are asked about certificates that can't be verified.
-- **Browsing:** local and remote panes side by side, with sortable columns, a filter, file-type icons, hidden files, directory comparison, synchronized browsing, and drag & drop between panes and from your file manager.
-- **Workspace:** the same layout on every platform. The activity log, the transfer queue and the terminal share one resizable panel below the panes, with a tab for each; it can be collapsed or, for the terminal, maximized.
-- **File operations:** create, rename, delete (recursively), change permissions, and View/Edit (open a remote file locally and upload it again when you save; scripts and programs are shown in their folder instead of being run).
-- **SSH terminal:** for SFTP sites, the Terminal tab opens a shell on the server, on its own connection, in the folder you're viewing. Open it with Ctrl+` (all platforms), the toolbar, or *Open Terminal Here* on a remote folder. On Windows and Linux, copy and paste are Ctrl+Shift+C / Ctrl+Shift+V.
-- **Transfer queue:** parallel transfers, queued/failed/done tabs, automatic retries, resume, a choice of what to do when a file already exists, and speed limits. The queue is kept across restarts.
-- **Appearance:** light, dark, or follow the system, chosen in Settings.
-- **Automatic updates:** checks GitHub for a new release at startup (or *Check for Updates…* in the menu), then downloads, installs and relaunches. The Windows portable `.exe` and Linux `.tar.gz` builds only open the download page.
-- **Import/export:** `File → Export Sites…` writes a `.remotessh` file and `File → Import from RemoteSSH…` reads one. The same file works on every platform. Passwords are only included if you choose to.
+- **Both sides at once.** Your local folder and the server's folder side by side, with newer, missing and different files marked.
+- **The protocols hosts use.** SFTP with a password or an Ed25519/RSA key, and FTP with explicit or implicit TLS.
+- **Asks before it trusts.** Host keys and certificates are checked before your password is sent. Saved passwords go into the system keychain.
+- **A terminal when you need one.** Open a shell on the server, in the folder you're looking at, without leaving the app.
+- **The same everywhere.** One layout, one feature set and one site file on macOS, Windows and Linux. Native SwiftUI on the Mac.
+- **Free and private.** No account, no analytics, MIT licensed.
 
 ## Download
 
-Every [release](../../releases/latest) has the packages for all platforms:
+Every [release](https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest) includes packages for all platforms. The [website](https://fahed-alhammadi.github.io/RemoteSSH/#download) picks the right file for your system.
 
-- **Windows:** `RemoteSSH-x.y.z-win-x64.exe` (installer), `-win-arm64.exe`, or `RemoteSSH-x.y.z-portable.exe`.
-- **Linux:** `.AppImage`, `.deb` (Debian/Ubuntu) or `.tar.gz`, for x64 and arm64.
-- **macOS:** `RemoteSSH-x.y.z-macos.zip`.
+| System | Requirements | File |
+| --- | --- | --- |
+| macOS | macOS 15 or later, Apple silicon | `RemoteSSH-x.y.z-macos.zip`: unzip and drag into Applications |
+| Windows | Windows 10 or 11 | `RemoteSSH-x.y.z-win-x64.exe` or `-win-arm64.exe` (installer), or `RemoteSSH-x.y.z-portable.exe` (x64) |
+| Linux | x64 or Arm64 | `.AppImage`, `.deb` for Debian and Ubuntu, or `.tar.gz` |
 
-The macOS app is signed with a Developer ID and notarized by Apple, so it opens without a warning. The Windows builds are not code-signed: SmartScreen shows a warning the first time, so click *More info → Run anyway*.
+The macOS app is signed with a Developer ID and notarized by Apple, so it opens without a warning. The Windows builds are not code-signed yet: SmartScreen warns the first time, so choose *More info → Run anyway*.
+
+**Updates:** the apps look for a new release at startup (you can turn this off in Settings) or when you choose *Check for Updates…*, and install it when you agree. The Windows portable `.exe` and the Linux `.tar.gz` open the release page instead.
+
+## Features
+
+| Area | What you get |
+| --- | --- |
+| **Connect** | Type an address such as `sftp://user@host:port/path` and press Connect, or save servers in the Site Manager with folders, logon types (normal, anonymous, ask for password, key file) and default folders. Saved sites are listed in a sidebar; one click connects. |
+| **Browse** | Sortable columns, a filter, file-type icons, hidden files, directory comparison, synchronized browsing, and drag and drop between the panes and from your file manager. |
+| **Files** | Create, rename, delete (recursively) and change permissions. View/Edit opens a remote file in your editor and uploads it again when you save. |
+| **Transfer queue** | Parallel transfers, queued/failed/done tabs, automatic retries, resume, a choice of what to do when a file already exists, and speed limits. The queue is kept across restarts. |
+| **SSH terminal** | For SFTP sites, the Terminal tab opens a shell on its own connection, in the folder you're viewing. Toggle it with Ctrl+`, or use *Open Terminal Here* on a remote folder. On Windows and Linux, copy and paste with Ctrl+Shift+C / Ctrl+Shift+V. |
+| **Workspace** | The activity log, transfer queue and terminal share one resizable panel below the panes. It can be collapsed, and the terminal maximized. |
+| **Appearance** | Light, dark, or follow the system. |
+| **Import and export** | *File → Export Sites…* writes a `.remotessh` file that *File → Import from RemoteSSH…* reads on any platform. Passwords are included only if you choose. |
+
+## Security
+
+- **SFTP host keys** are remembered after you accept them (shown as a SHA-256 fingerprint), and you are warned if a server's key changes.
+- **FTPS certificates** are checked before any password is sent. If one can't be verified, you're told why and decide whether to connect.
+- **Passwords** are saved in the macOS Keychain, Windows DPAPI, or the Secret Service or KWallet on Linux. Without a keyring, RemoteSSH asks when you connect instead of storing them in plain text.
+- **Downloads** can't write outside the folder you chose, and View/Edit shows scripts and programs in their folder instead of opening them.
+- **Updates** to the released Mac app are installed only if they are signed by the same developer.
+
+## Where data is stored
+
+| | Sites, known hosts, queue | Settings | Passwords |
+| --- | --- | --- | --- |
+| macOS | `~/Library/Application Support/RemoteSSH/` | macOS preferences (`app.remotessh.RemoteSSH`) | Keychain (service `RemoteSSH`) |
+| Windows | `%APPDATA%\RemoteSSH\` | same folder | `secrets.json`, encrypted with DPAPI |
+| Linux | `~/.config/RemoteSSH/` | same folder | `secrets.json`, encrypted using the Secret Service or KWallet |
+
+The apps contact only your servers and GitHub (to look for updates). There are no analytics.
 
 ## Build from source
 
-### Windows and Linux (`electron/`)
+| Path | What |
+| --- | --- |
+| `macos/` | macOS app: SwiftUI, Citadel for SFTP, libcurl for FTP/FTPS, SwiftTerm |
+| `electron/` | Windows and Linux app: Electron, React, TypeScript, ssh2, basic-ftp, xterm.js |
+| `windows/`, `linux/` | Packaging settings for the Electron app; packages are written to their `dist/` |
+| `docs/` | The website (GitHub Pages) |
+| `scripts/` | Throwaway SFTP/FTP test servers and the icon generator |
 
-You need Node.js 22 or later. The shared Electron app lives in `electron/`; `windows/` and `linux/` hold each platform's packaging settings (`electron-builder.json`) and receive its packages in `dist/`.
+**Windows and Linux** (Node.js 22 or later):
 
 ```bash
 cd electron
@@ -57,9 +102,7 @@ npm run dist:linux     # → ../linux/dist/*.AppImage, *.deb, *.tar.gz
 npm run dist:win       # → ../windows/dist/*.exe (works from Windows, macOS or Linux)
 ```
 
-### macOS (`macos/`)
-
-You need macOS 15 or later with Xcode 16 or later. The Command Line Tools alone are not enough, because the terminal view includes a Metal shader. With Xcode 26 or later, install the Metal Toolchain once: `xcodebuild -downloadComponent MetalToolchain`.
+**macOS** (macOS 15 and Xcode 16 or later; the Command Line Tools alone can't build the terminal's Metal shader. With Xcode 26 or later, run `xcodebuild -downloadComponent MetalToolchain` once):
 
 ```bash
 cd macos
@@ -67,14 +110,10 @@ cd macos
 ./scripts/integration-test.sh   # unit tests + live FTP/FTPES/SFTP tests against throwaway local servers
 ```
 
-## Where data is stored
+## Support
 
-| | Sites, known hosts, queue, settings | Passwords |
-| --- | --- | --- |
-| macOS | `~/Library/Application Support/RemoteSSH/` | Keychain (service `RemoteSSH`) |
-| Windows | `%APPDATA%\RemoteSSH\` | `secrets.json`, encrypted with DPAPI |
-| Linux | `~/.config/RemoteSSH/` | `secrets.json`, encrypted using the Secret Service or KWallet |
+Questions and bug reports go to [GitHub Issues](https://github.com/Fahed-Alhammadi/RemoteSSH/issues). Please leave out passwords, private keys and server addresses you don't want to make public.
 
 ## License
 
-[MIT](LICENSE) © Fahed Alhammadi
+[MIT](LICENSE) © 2026 Fahed Alhammadi. Swift and npm dependencies keep their own licenses (mostly MIT or Apache-2.0).

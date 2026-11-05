@@ -2,19 +2,25 @@
 const REPO = 'Fahed-Alhammadi/RemoteSSH'
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-// Hero: index.html travels from "Your computer" to "Your server" once, then the finished state stays.
+// index.html travels from "Your computer" to "Your server" once, when the panel scrolls into view;
+// the finished state then stays. Under reduced motion only the finished state is shown.
 function playHandoff() {
   const handoff = document.querySelector('.handoff')
   if (!handoff) return
-  if (reduceMotion) return handoff.classList.add('done')
+  if (reduceMotion || !('IntersectionObserver' in window)) return handoff.classList.add('done')
   const lane = handoff.querySelector('.lane')
   const chip = handoff.querySelector('.chip')
-  setTimeout(() => {
-    const padding = parseFloat(getComputedStyle(lane).paddingLeft) * 2
-    handoff.style.setProperty('--travel', `${Math.max(0, lane.clientWidth - chip.offsetWidth - padding)}px`)
-    handoff.classList.add('play')
-    setTimeout(() => handoff.classList.replace('play', 'done'), 1500)
-  }, 700)
+  const observer = new IntersectionObserver((entries) => {
+    if (!entries.some((e) => e.isIntersecting)) return
+    observer.disconnect()
+    setTimeout(() => {
+      const padding = parseFloat(getComputedStyle(lane).paddingLeft) * 2
+      handoff.style.setProperty('--travel', `${Math.max(0, lane.clientWidth - chip.offsetWidth - padding)}px`)
+      handoff.classList.add('play')
+      setTimeout(() => handoff.classList.replace('play', 'done'), 1500)
+    }, 300)
+  }, { threshold: 0.6 })
+  observer.observe(handoff)
 }
 
 function detectOS() {
@@ -38,7 +44,7 @@ async function wireDownloads() {
   const os = detectOS()
   const hero = document.getElementById('hero-download')
   if (os) {
-    hero.textContent = `Download for ${OS_LABEL[os]}`
+    hero.querySelector('span').textContent = `Download for ${OS_LABEL[os]}`
     document.querySelector(`.platform[data-os="${os}"]`)?.classList.add('current')
   }
 
@@ -69,9 +75,9 @@ async function wireDownloads() {
   }
   if (version) {
     document.getElementById('release-note').textContent =
-      `Version ${version}, for macOS 15+, Windows 10+ and Linux. MIT licensed.`
+      `Version ${version}, for macOS 15+, Windows 10+ and Linux.`
     document.getElementById('download-lede').textContent =
-      `Version ${version} includes all platforms. Pick the file for your system.`
+      `Version ${version}, free for every platform. Every release includes all of them, and the apps update themselves.`
   }
 }
 
