@@ -64,8 +64,28 @@ export class SFTPSession implements RemoteSession {
         this.client.end() // e.g. the SFTP subsystem failed after login: don't leave the socket open
         reject(e)
       }
-      this.client.on('keyboard-interactive', (_name, _instructions, _lang, prompts, finish) => {
-        finish(prompts.map(() => this.ctx.password))
+      // The saved password answers one hidden "Password" prompt; anything else (one-time codes,
+      // a second factor, a repeated password prompt after a wrong one) is asked of the user.
+      let passwordUsed = false
+      this.client.on('keyboard-interactive', (_name, instructions, _lang, prompts, finish) => {
+        void (async () => {
+          const answers: string[] = []
+          for (const { prompt, echo } of prompts) {
+            if (!echo && !passwordUsed && this.ctx.password && /password/i.test(prompt)) {
+              passwordUsed = true
+              answers.push(this.ctx.password)
+              continue
+            }
+            const title = `${effectiveUser(site)}@${site.host}`
+            const message = [instructions, prompt].filter(Boolean).join('\n')
+            const answer = echo
+              ? await ask(this.ctx.prompter, { kind: 'text', title, message, initial: '' })
+              : await ask(this.ctx.prompter, { kind: 'password', title, message })
+            if (answer == null) return fail(new CancelledError('Login cancelled.'))
+            answers.push(answer)
+          }
+          finish(answers)
+        })().catch((e: Error) => fail(e))
       })
       this.client.once('ready', () => {
         this.client.sftp((err, sftp) => {

@@ -1,5 +1,6 @@
 import path from 'node:path'
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, safeStorage, shell, type MenuItemConstructorOptions } from 'electron'
+import { pathToFileURL } from 'node:url'
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, safeStorage, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
 import { Events, invokeMethods } from '../shared/api'
 import type { MenuAction } from '../shared/types'
 import { Controller } from './controller'
@@ -12,13 +13,33 @@ if (process.platform === 'win32') app.setAppUserModelId('app.remotessh.RemoteSSH
 let window: BrowserWindow | null = null
 const updater = new Updater(() => window)
 
+/** Development only: load the renderer from a dev server. Released builds always load the bundled page. */
+const devURL = app.isPackaged ? undefined : process.env.REMOTESSH_DEV_URL
+const pageFile = path.join(__dirname, 'renderer', 'index.html')
+
+/** Set once the app is ready (see `whenReady`), before the controller reads it. */
+let encryptionAvailable = false
+
 /** OS keyring encryption. Linux's "basic_text" fallback is plain obfuscation, so it counts as unavailable. */
 const cipher: SecretCipher = {
-  available: () =>
-    safeStorage.isEncryptionAvailable() &&
-    (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
-  encrypt: (plain) => safeStorage.encryptString(plain).toString('base64'),
-  decrypt: (encoded) => safeStorage.decryptString(Buffer.from(encoded, 'base64')),
+  available: () => encryptionAvailable,
+  encrypt: async (plain) => (await safeStorage.encryptStringAsync(plain)).toString('base64'),
+  decrypt: async (encoded) => (await safeStorage.decryptStringAsync(Buffer.from(encoded, 'base64'))).result,
+}
+
+/** IPC is only served to the app's own page in its main window, never to another frame or page. */
+function isTrustedSender(event: IpcMainInvokeEvent): boolean {
+  const frame = event.senderFrame
+  if (!window || !frame || event.sender !== window.webContents || frame !== window.webContents.mainFrame) return false
+  try {
+    const url = new URL(frame.url)
+    if (devURL) return url.origin === new URL(devURL).origin
+    url.hash = ''
+    url.search = ''
+    return url.href === pathToFileURL(pageFile).href
+  } catch {
+    return false
+  }
 }
 
 function createWindow(controller: Controller): void {
@@ -62,8 +83,8 @@ function createWindow(controller: Controller): void {
       }, Number(process.env.REMOTESSH_CAPTURE_DELAY ?? 1500))
     })
   }
-  if (process.env.REMOTESSH_DEV_URL) void window.loadURL(process.env.REMOTESSH_DEV_URL)
-  else void window.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  if (devURL) void window.loadURL(devURL)
+  else void window.loadFile(pageFile)
   Menu.setApplicationMenu(buildMenu(controller))
 }
 
@@ -143,11 +164,21 @@ if (!app.requestSingleInstanceLock()) {
     window?.focus()
   })
 
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
+    encryptionAvailable =
+      (await safeStorage.isAsyncEncryptionAvailable()) &&
+      (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text')
+    // Electron grants every permission unless told otherwise; the terminal only needs the clipboard.
+    const allowed = new Set(['clipboard-read', 'clipboard-sanitized-write'])
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => callback(allowed.has(permission)))
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed.has(permission))
     const controller = new Controller(app.getPath('userData'), cipher, () => window)
     const handlers = controller.handlers()
     for (const method of invokeMethods) {
-      ipcMain.handle(method, (_event, ...args: unknown[]) => (handlers[method] as (...a: unknown[]) => unknown)(...args))
+      ipcMain.handle(method, (event, ...args: unknown[]) => {
+        if (!isTrustedSender(event)) throw new Error('Blocked IPC from an untrusted page.')
+        return (handlers[method] as (...a: unknown[]) => unknown)(...args)
+      })
     }
     createWindow(controller)
     if (controller.settings.checkForUpdates) setTimeout(() => void updater.check(false), 5000)

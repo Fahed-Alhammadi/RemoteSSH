@@ -204,6 +204,7 @@ final class TransferManager {
         }
         let session = model.makeSession(for: site, password: model.password(for: site) ?? "")
         try await session.connect()
+        model.noteConnected(session)
         return session
     }
 

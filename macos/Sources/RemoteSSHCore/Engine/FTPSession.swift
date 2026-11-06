@@ -72,6 +72,10 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
         h.set(CURLOPT_TCP_KEEPALIVE, options.keepAlive ? 1 : 0)
         h.set(CURLOPT_FTP_FILEMETHOD, Int(CURLFTPMETHOD_SINGLECWD.rawValue))
         h.set(CURLOPT_FTP_USE_EPSV, 1)
+        // Sessions run on several queues at once; signals aren't thread-safe (libcurl-thread).
+        h.set(CURLOPT_NOSIGNAL, 1)
+        // The system libcurl predates 8.16, whose default minimum is TLS 1.2.
+        h.set(CURLOPT_SSLVERSION, Int(CURL_SSLVERSION_TLSv1_2))
         if site.transferMode == .active { h.set(CURLOPT_FTPPORT, "-") }
         switch site.encryption {
         case .explicitIfAvailable: h.set(CURLOPT_USE_SSL, Int(CURLUSESSL_TRY.rawValue))
@@ -140,7 +144,7 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
         let serverMessage = ctx.responseLines.last(where: { $0.count >= 3 && $0.prefix(3).allSatisfy(\.isNumber) && Int($0.prefix(3))! >= 400 })
         let message = serverMessage ?? CurlHandle.describe(code)
         switch code {
-        case CURLE_PEER_FAILED_VERIFICATION, CURLE_SSL_CERTPROBLEM:
+        case CURLE_PEER_FAILED_VERIFICATION:
             throw CertificateFailure(message: CurlHandle.describe(code))
         case CURLE_LOGIN_DENIED:
             throw RemoteSSHError.authenticationFailed(message)

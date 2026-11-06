@@ -43,6 +43,7 @@ extension AppModel {
             guard generation == connectGeneration else { await session.disconnect(); return }
             // Remember a typed password only once it worked, so a typo is asked for again next time.
             if let prompted { transientPasswords[site.id] = prompted }
+            noteConnected(session)
             self.session = session
             connection = .connected
             let start: String
@@ -63,7 +64,11 @@ extension AppModel {
     }
 
     func makeSession(for site: Site, password: String, log: LogSink? = nil) -> RemoteSession {
-        SessionFactory.make(
+        var site = site
+        if site.serverProtocol == .ftp, site.encryption == .explicitIfAvailable, tlsSites.contains(site.id) {
+            site.encryption = .requireExplicit
+        }
+        return SessionFactory.make(
             site: site,
             credentials: SessionCredentials(password: password),
             options: settings.sessionOptions,
@@ -71,6 +76,12 @@ extension AppModel {
             hostKeys: knownHosts,
             log: log ?? makeLogSink()
         )
+    }
+
+    /// Remembers that FTP TLS worked for a site, so `makeSession` refuses a later downgrade.
+    func noteConnected(_ session: RemoteSession) {
+        let site = session.site
+        if site.serverProtocol == .ftp, session.isEncrypted { tlsSites.insert(site.id) }
     }
 
     func disconnect() async {
