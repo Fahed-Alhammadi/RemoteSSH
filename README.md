@@ -70,6 +70,17 @@ The macOS app is signed with a Developer ID and notarized by Apple, so it opens 
 - **Downloads** can't write outside the folder you chose, and View/Edit shows scripts and programs in their folder instead of opening them.
 - **Updates** to the released Mac app are installed only if they are signed by the same developer.
 
+## Code signing policy
+
+Free code signing for Windows provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- **Committers and reviewers:** [Fahed Alhammadi](https://github.com/Fahed-Alhammadi)
+- **Approvers:** [Fahed Alhammadi](https://github.com/Fahed-Alhammadi)
+
+Only files built from this repository by GitHub Actions are signed; nothing built on a personal computer is. The macOS app is signed separately with an Apple Developer ID and notarized by Apple.
+
+**Privacy:** RemoteSSH only connects to the servers you choose. The one other connection is the check for a new release on GitHub at startup, which you can turn off in Settings. It does not collect or send any other information.
+
 ## Where data is stored
 
 | | Sites, known hosts, queue | Settings | Passwords |
