@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { isIP } from 'node:net'
 import { pipeline as pipe, type Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import type { TLSSocket } from 'node:tls'
+import { TLSSocket } from 'node:tls'
 import { Client, FileType, FTPError, type FileInfo } from 'basic-ftp'
 import { effectivePort, effectiveUser } from '../../shared/site'
 import type { FileEntry, Site } from '../../shared/types'
@@ -80,8 +80,9 @@ export class FTPSession implements RemoteSession {
   /** Asks about certificates Node could not verify, before any credentials are sent. */
   private async verifyCertificate(): Promise<void> {
     const socket = this.client.ftp.socket as TLSSocket
-    if (socket.authorized || this.site.trustInvalidCertificate) return
     const cert = socket.getPeerCertificate()
+    this.pinDataCertificate(cert.fingerprint256)
+    if (socket.authorized || this.site.trustInvalidCertificate) return
     const name = (o: Record<string, string | string[]> | undefined) =>
       o ? Object.entries(o).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`).join(', ') : ''
     const answer = await ask(this.ctx.prompter, {
@@ -97,6 +98,33 @@ export class FTPSession implements RemoteSession {
     })
     if (answer === 'reject') throw new CancelledError('The server certificate was not trusted.')
     if (answer === 'always') this.ctx.trustCertificate({ ...this.site, trustInvalidCertificate: true })
+  }
+
+  /**
+   * basic-ftp opens data connections with the control connection's TLS options, where Node's checks
+   * are off so verifyCertificate() can ask the user. Each data connection must instead present the
+   * control connection's certificate (or resume its TLS session), so file contents can't be intercepted.
+   */
+  private pinDataCertificate(fingerprint: string | undefined): void {
+    const ftp = this.client.ftp
+    const accessor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(ftp), 'dataSocket')
+    if (!accessor?.get || !accessor.set) throw new SessionError('Cannot verify FTPS data connections with this basic-ftp version.')
+    const { get, set } = accessor
+    Object.defineProperty(ftp, 'dataSocket', {
+      configurable: true,
+      get() {
+        return get.call(this)
+      },
+      set(socket: unknown) {
+        if (socket instanceof TLSSocket) {
+          socket.once('secureConnect', () => {
+            if (socket.isSessionReused() || (fingerprint && socket.getPeerCertificate().fingerprint256 === fingerprint)) return
+            socket.destroy(new Error('The data connection presented a different certificate than the server; transfer stopped.'))
+          })
+        }
+        set.call(this, socket)
+      },
+    })
   }
 
   close(): void {

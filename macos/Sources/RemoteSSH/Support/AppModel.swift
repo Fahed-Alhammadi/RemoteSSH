@@ -38,6 +38,9 @@ final class AppModel {
     /// Quickconnect sites live only in memory.
     var transientSites: [UUID: Site] = [:]
     @ObservationIgnored var transientPasswords: [UUID: String] = [:]
+    /// FTP sites ("TLS if available") where TLS worked this run: their later connections, including
+    /// pooled transfer and terminal sessions, require TLS so they can't be downgraded to plain FTP.
+    @ObservationIgnored var tlsSites: Set<UUID> = []
 
     let prompts = PromptCenter()
     private(set) var log: [LogLine] = []
