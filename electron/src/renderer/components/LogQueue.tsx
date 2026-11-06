@@ -118,8 +118,14 @@ export function Dock(props: {
   const [filter, setFilter] = useState<Filter>('queued')
   const groups = useMemo(() => {
     const g: Record<Filter, TransferItem[]> = { queued: [], failed: [], finished: [] }
-    for (const i of props.items) g[i.status === 'transferring' ? 'queued' : i.status].push(i)
-    g.queued.sort((a, b) => Number(b.status === 'transferring') - Number(a.status === 'transferring'))
+    // Running items first, then waiting ones in queue order: one pass, no sort (queues can be huge).
+    const waiting: TransferItem[] = []
+    for (const i of props.items) {
+      if (i.status === 'transferring') g.queued.push(i)
+      else if (i.status === 'queued') waiting.push(i)
+      else g[i.status].push(i)
+    }
+    for (const i of waiting) g.queued.push(i)
     g.finished.sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))
     return g
   }, [props.items])

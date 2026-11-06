@@ -52,7 +52,7 @@ struct RemoteSSHApp: App {
             Button("Reconnect", systemImage: "arrow.triangle.2.circlepath") { model.reconnect() }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(model.currentSite == nil)
-            Button("Disconnect", systemImage: "eject") { Task { await model.disconnect() } }
+            Button("Disconnect", systemImage: "eject") { model.disconnect() }
                 .keyboardShortcut("d", modifiers: .command)
                 .disabled(model.connection != .connected)
             Divider()

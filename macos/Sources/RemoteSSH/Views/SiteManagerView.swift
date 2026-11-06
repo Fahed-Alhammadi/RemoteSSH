@@ -176,7 +176,8 @@ struct SiteManagerView: View {
         }
         TextField("Default remote directory:", text: site.defaultRemoteDirectory)
         if site.wrappedValue.serverProtocol == .ftp {
-            Toggle("Trust this server's TLS certificate even if it can't be verified", isOn: site.trustInvalidCertificate)
+            Toggle("Trust the server's TLS certificate on first connect without asking", isOn: site.trustInvalidCertificate)
+                .help("An unverifiable certificate is accepted once and pinned; later connections only accept that certificate, and a changed one is asked about.")
         }
     }
 

@@ -4,9 +4,9 @@ import { Terminal, type ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { ClipboardPaste, Copy, Eraser, TextSelect } from 'lucide-react'
 import type { TerminalEvent } from '../../shared/api'
-import { errorMessage, RemotePath, shellQuote } from '../../shared/util'
+import { errorMessage, hasControlChars, RemotePath, shellQuote } from '../../shared/util'
 import { api } from '../api'
-import { DRAG_TYPE, dragSideType, type DragPayload } from './FilePane'
+import { DRAG_TYPE, dragSideType, ownDragPayload } from './FilePane'
 import { ContextMenu } from './ui'
 
 export type TerminalStatus = 'connecting' | 'connected' | 'disconnected'
@@ -102,7 +102,8 @@ export function TerminalView(props: {
       xterm.onResize(({ cols, rows }) => shellID.current != null && void api.terminalResize(shellID.current, cols, rows)),
     ]
     const show = (e: TerminalEvent) => {
-      if (e.data) xterm.write(e.data)
+      // The ack after drawing lets the main process pause the SSH channel while xterm is behind.
+      if (e.data) xterm.write(e.data, () => void api.terminalAck(e.id, e.data.length))
       if (e.ended) {
         xterm.write(`\r\n\x1b[2m[Session ended: ${e.ended}]\x1b[0m\r\n`)
         shellID.current = null
@@ -138,7 +139,8 @@ export function TerminalView(props: {
     if (!t) return
     const { xterm, fit, show } = t
     if (reuse && shellID.current != null && dir) {
-      void api.terminalInput(shellID.current, ` cd -- ${shellQuote(dir)}\r`)
+      if (hasControlChars(dir)) xterm.write('\r\n\x1b[31mThis folder name contains control characters; not changing directory.\x1b[0m\r\n')
+      else void api.terminalInput(shellID.current, ` cd -- ${shellQuote(dir)}\r`)
       xterm.focus()
       return
     }
@@ -176,12 +178,14 @@ export function TerminalView(props: {
 
   // Remote files dropped from the remote pane are typed as quoted paths.
   const onDrop = (e: React.DragEvent) => {
-    const raw = e.dataTransfer.getData(DRAG_TYPE)
-    if (!raw) return
+    if (!e.dataTransfer.types.includes(DRAG_TYPE)) return
     e.preventDefault()
-    const payload = JSON.parse(raw) as DragPayload
-    if (payload.side !== 'remote') return
-    term.current?.xterm.paste(payload.entries.map((f) => shellQuote(RemotePath.join(payload.dir, f.name))).join(' ') + ' ')
+    const payload = ownDragPayload(e.dataTransfer)
+    if (payload?.side !== 'remote') return
+    // Control characters would act on the line editor before the quotes count (see hasControlChars).
+    const paths = payload.entries.map((f) => RemotePath.join(payload.dir, f.name)).filter((p) => !hasControlChars(p))
+    if (!paths.length) return
+    term.current?.xterm.paste(paths.map(shellQuote).join(' ') + ' ')
     term.current?.xterm.focus()
   }
 

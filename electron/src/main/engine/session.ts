@@ -8,6 +8,27 @@ export class CancelledError extends SessionError {
     super(message)
   }
 }
+/** The server or the local disk refused the operation (permission, missing file, quota, login): not retried. */
+export class PermanentError extends SessionError {}
+
+/** Local file errors that another attempt can't fix. */
+const PERMANENT_ERRNO = new Set(['ENOENT', 'EACCES', 'EPERM', 'ENOSPC', 'EDQUOT', 'EISDIR', 'ENOTDIR', 'EROFS', 'ENAMETOOLONG', 'EEXIST'])
+/** SFTP status codes: NO_SUCH_FILE, PERMISSION_DENIED, FAILURE, BAD_MESSAGE, OP_UNSUPPORTED. */
+const PERMANENT_SFTP = new Set([2, 3, 4, 5, 8])
+
+/** True for errors a retry can't fix; connection problems (timeouts, resets, closed sockets) are false. */
+export function isPermanentError(e: unknown): boolean {
+  if (e instanceof PermanentError) return true
+  const code = (e as { code?: unknown } | null)?.code
+  return (typeof code === 'string' && PERMANENT_ERRNO.has(code)) || (typeof code === 'number' && PERMANENT_SFTP.has(code))
+}
+
+/** Wraps an error from ssh2 or the file system, keeping whether it is permanent. */
+export function sessionError(e: unknown): SessionError {
+  if (e instanceof SessionError) return e
+  const message = e instanceof Error ? e.message : String(e)
+  return isPermanentError(e) ? new PermanentError(message) : new SessionError(message)
+}
 
 export type LogSink = (kind: LogKind, text: string) => void
 export type ProgressHandler = (transferred: number) => void
@@ -38,7 +59,7 @@ export interface SessionOptions {
   /** Bytes per second, 0 = unlimited. */
   downloadLimit: number
   uploadLimit: number
-  /** "Explicit TLS if available" may not fall back to plain FTP (TLS already worked for this site). */
+  /** "Explicit TLS if available" may not fall back to plain FTP (TLS already worked for this server). */
   requireTLS?: boolean
 }
 
@@ -79,6 +100,12 @@ export interface SessionContext {
   hostKeys: {
     check(host: string, port: number, key: string): 'trusted' | 'unknown' | 'changed'
     trust(host: string, port: number, key: string): void
+  }
+  /** Accepted FTPS certificates (see CertificateStore). */
+  certificates: {
+    hasPin(host: string, port: number): boolean
+    check(host: string, port: number, fingerprint: string, usePin: boolean): 'trusted' | 'unknown' | 'changed'
+    trust(host: string, port: number, fingerprint: string, persist: boolean): void
   }
 }
 

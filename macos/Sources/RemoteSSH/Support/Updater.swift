@@ -1,5 +1,4 @@
 import AppKit
-import CryptoKit
 import RemoteSSHCore
 import Security
 
@@ -49,9 +48,11 @@ final class Updater {
 
     private func offer(_ release: ReleaseInfo, current: String) async throws {
         let app = Bundle.main.bundleURL
-        let blocker = installBlocker(app)
-        guard let download = release.downloadURL, blocker == nil else {
-            // No macOS download, or the app can't replace itself: offer the release page instead.
+        // An update is only installed when it can be verified against the release's SHA-256 checksum.
+        let blocker = installBlocker(app) ?? (release.downloadURL != nil && release.sha256 == nil
+            ? "The release has no checksum, so it can't be installed automatically. Download it from GitHub." : nil)
+        guard let download = release.downloadURL, let sha256 = release.sha256, blocker == nil else {
+            // No macOS download, no checksum, or the app can't replace itself: offer the release page instead.
             let note = blocker ?? "Download it from GitHub."
             if ask("RemoteSSH \(release.version) is available", "You have version \(current). \(note)",
                    buttons: ["Open Download Page", "Later"]) {
@@ -62,7 +63,7 @@ final class Updater {
         guard ask("RemoteSSH \(release.version) is available",
                   "You have version \(current). Download and install it now? RemoteSSH will relaunch.",
                   buttons: ["Install and Relaunch", "Later"]) else { return }
-        let newApp = try await fetch(download, sha256: release.sha256)
+        let newApp = try await fetch(download, sha256: sha256)
         try relaunch(replacing: app, with: newApp)
     }
 
@@ -79,33 +80,33 @@ final class Updater {
 
     /// Downloads and unpacks the zip, then checks the checksum, bundle ID and code signature. When this app is
     /// signed with a Developer ID, the update must be signed by the same team.
-    private func fetch(_ url: URL, sha256: String?) async throws -> URL {
+    private func fetch(_ url: URL, sha256: String) async throws -> URL {
         let (zip, response) = try await URLSession.shared.download(from: url)
         defer { try? FileManager.default.removeItem(at: zip) }
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateError("The download failed.") }
-        if let sha256 {
-            let digest = SHA256.hash(data: try Data(contentsOf: zip, options: .mappedIfSafe))
-            guard digest.map({ String(format: "%02x", $0) }).joined() == sha256 else {
-                throw UpdateError("The download is damaged (checksum mismatch).")
+        let bundleID = Bundle.main.bundleIdentifier
+        let currentApp = Bundle.main.bundleURL
+        // Hashing, unpacking and codesign take a while: keep them off the main actor.
+        return try await Task.detached(priority: .userInitiated) {
+            try ReleaseCheck.verify(fileAt: zip, sha256: sha256)
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("RemoteSSH-update-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            do {
+                try Self.run("/usr/bin/ditto", ["-x", "-k", zip.path, dir.path])
+                let newApp = dir.appendingPathComponent("RemoteSSH.app")
+                guard Bundle(url: newApp)?.bundleIdentifier == bundleID else {
+                    throw UpdateError("The download does not contain RemoteSSH.")
+                }
+                try Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", newApp.path])
+                if let team = Self.teamIdentifier(of: currentApp), !Self.isSigned(newApp, byTeam: team) {
+                    throw UpdateError("The download is not signed by the RemoteSSH developer.")
+                }
+                return newApp
+            } catch {
+                try? FileManager.default.removeItem(at: dir)
+                throw error
             }
-        }
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("RemoteSSH-update-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        do {
-            try run("/usr/bin/ditto", ["-x", "-k", zip.path, dir.path])
-            let newApp = dir.appendingPathComponent("RemoteSSH.app")
-            guard Bundle(url: newApp)?.bundleIdentifier == Bundle.main.bundleIdentifier else {
-                throw UpdateError("The download does not contain RemoteSSH.")
-            }
-            try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", newApp.path])
-            if let team = teamIdentifier(of: Bundle.main.bundleURL), !isSigned(newApp, byTeam: team) {
-                throw UpdateError("The download is not signed by the RemoteSSH developer.")
-            }
-            return newApp
-        } catch {
-            try? FileManager.default.removeItem(at: dir)
-            throw error
-        }
+        }.value
     }
 
     /// A detached shell waits for this process to quit, swaps the bundles (restoring on failure) and reopens the app.
@@ -125,7 +126,7 @@ final class Updater {
         NSApp.terminate(nil)
     }
 
-    private func run(_ tool: String, _ arguments: [String]) throws {
+    private nonisolated static func run(_ tool: String, _ arguments: [String]) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = arguments
@@ -139,7 +140,7 @@ final class Updater {
     }
 
     /// The Team ID in an app's signature, or nil for ad-hoc and unsigned builds.
-    private func teamIdentifier(of app: URL) -> String? {
+    private nonisolated static func teamIdentifier(of app: URL) -> String? {
         var code: SecStaticCode?
         var info: CFDictionary?
         guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code,
@@ -149,7 +150,7 @@ final class Updater {
     }
 
     /// Whether `app` has a valid signature from an Apple-issued certificate of `team`.
-    private func isSigned(_ app: URL, byTeam team: String) -> Bool {
+    private nonisolated static func isSigned(_ app: URL, byTeam team: String) -> Bool {
         var code: SecStaticCode?
         var requirement: SecRequirement?
         let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\"" as CFString

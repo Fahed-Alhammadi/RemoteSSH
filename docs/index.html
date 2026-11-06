@@ -7,16 +7,20 @@
   <meta name="description" content="RemoteSSH is a free, open-source file transfer client with two panes, a transfer queue, a site manager and an SSH terminal. SFTP, FTP and FTPS on macOS, Windows and Linux.">
   <meta name="theme-color" content="#F5F7FA" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#12161D" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="website">
   <meta property="og:title" content="RemoteSSH">
   <meta property="og:description" content="Free, open-source SFTP, FTP and FTPS client for macOS, Windows and Linux.">
-  <meta property="og:image" content="https://fahed-alhammadi.github.io/RemoteSSH/images/app-light.webp">
+  <meta property="og:image" content="https://fahed-alhammadi.github.io/RemoteSSH/images/og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="RemoteSSH with saved sites in the sidebar and a local and a remote folder side by side, changed files marked.">
   <meta property="og:url" content="https://fahed-alhammadi.github.io/RemoteSSH/">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="canonical" href="https://fahed-alhammadi.github.io/RemoteSSH/">
   <link rel="icon" href="images/favicon-64.png" type="image/png">
   <link rel="apple-touch-icon" href="images/icon-256.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="preload" href="fonts/plex-sans-condensed-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/plex-sans-400.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -43,7 +47,7 @@
   <header class="site-header">
     <div class="wrap header-row">
       <a class="brand" href="#top" aria-label="RemoteSSH home">
-        <img src="images/icon-256.png" alt="" width="28" height="28">
+        <img src="images/favicon-64.png" alt="" width="28" height="28">
         <span>RemoteSSH</span>
       </a>
       <nav aria-label="Main">
@@ -64,7 +68,7 @@
             <p class="lede">A free, open-source file transfer client for SFTP, FTP and FTPS, with an SSH terminal when you need one. No account, nothing to sign up for.</p>
             <div class="cta-row">
               <a class="button primary" id="hero-download" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">
-                <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span>Download</span>
+                <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span class="cta-label" data-reserve="Download for Windows"><span>Download</span></span>
               </a>
               <a class="button" href="#download">All platforms</a>
             </div>
@@ -74,8 +78,8 @@
 
         <figure class="window hero-shot">
           <picture>
-            <source srcset="images/app-dark.webp" media="(prefers-color-scheme: dark)">
-            <img src="images/app-light.webp" width="2560" height="1600" alt="RemoteSSH connected to a server over SFTP: saved sites in the sidebar, the local project folder and the remote public_html folder side by side with changed files marked, and the activity log in the panel below.">
+            <source srcset="images/app-dark-1280.webp 1280w, images/app-dark-1920.webp 1920w, images/app-dark.webp 2560w" sizes="(min-width: 1192px) 1158px, calc(100vw - 34px)" media="(prefers-color-scheme: dark)">
+            <img src="images/app-light.webp" srcset="images/app-light-1280.webp 1280w, images/app-light-1920.webp 1920w, images/app-light.webp 2560w" sizes="(min-width: 1192px) 1158px, calc(100vw - 34px)" width="2560" height="1600" fetchpriority="high" alt="RemoteSSH connected to a server over SFTP: saved sites in the sidebar, the local project folder and the remote public_html folder side by side with changed files marked, and the activity log in the panel below.">
           </picture>
         </figure>
 
@@ -174,8 +178,8 @@
       <div class="wrap split reverse">
         <figure class="window">
           <picture>
-            <source srcset="images/terminal-dark.webp" media="(prefers-color-scheme: dark)">
-            <img src="images/terminal-light.webp" width="2560" height="1600" loading="lazy" alt="RemoteSSH connected over SFTP with the Terminal tab open in the panel below the panes. The shell is in the remote public_html folder and shows a file listing, the last lines of an access log and a backup archive being created.">
+            <source srcset="images/terminal-dark-1280.webp 1280w, images/terminal-dark-1920.webp 1920w, images/terminal-dark.webp 2560w" sizes="(min-width: 1192px) 640px, (min-width: 861px) calc(55.4vw - 21px), calc(100vw - 34px)" media="(prefers-color-scheme: dark)">
+            <img src="images/terminal-light.webp" srcset="images/terminal-light-1280.webp 1280w, images/terminal-light-1920.webp 1920w, images/terminal-light.webp 2560w" sizes="(min-width: 1192px) 640px, (min-width: 861px) calc(55.4vw - 21px), calc(100vw - 34px)" width="2560" height="1600" loading="lazy" alt="RemoteSSH connected over SFTP with the Terminal tab open in the panel below the panes. The shell is in the remote public_html folder and shows a file listing, the last lines of an access log and a backup archive being created.">
           </picture>
         </figure>
         <div class="split-intro">
@@ -196,7 +200,8 @@
           <h2 id="security-title">It asks before it trusts a server</h2>
           <p>Your password is only sent once RemoteSSH knows who it's talking to.</p>
           <ul class="checks">
-            <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>FTPS certificates are checked before you log in; if one can't be verified, you decide whether to connect</li>
+            <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>FTPS certificates are checked before you log in; if one can't be verified, you decide, and a trusted certificate that later changes is flagged</li>
+            <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Once a server has used TLS, RemoteSSH never quietly falls back to plain FTP for it</li>
             <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>SFTP host keys are remembered and shown as SHA-256 fingerprints, with a warning if a key changes</li>
             <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Passwords go to the macOS Keychain, Windows DPAPI, or the Secret Service or KWallet on Linux</li>
             <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>The released Mac app only installs updates signed by the same developer</li>
@@ -255,7 +260,7 @@
               <li><a data-asset="-win-arm64\.exe$" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">Installer, Arm64</a></li>
               <li><a data-asset="-portable\.exe$" href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest">Portable, x64</a></li>
             </ul>
-            <p class="note">The installer updates itself. SmartScreen may warn the first time: choose More info, then Run anyway.</p>
+            <p class="note">The installer updates itself. The app isn't code-signed, so Windows shows “Unknown publisher” and SmartScreen may warn the first time: choose More info, then Run anyway.</p>
           </article>
           <article class="platform" data-os="linux" role="listitem">
             <header>
@@ -275,7 +280,6 @@
           </article>
         </div>
         <p class="older">Release notes and older versions are on <a href="https://github.com/Fahed-Alhammadi/RemoteSSH/releases">GitHub releases</a>.</p>
-        <p class="older">Free code signing for Windows provided by <a href="https://signpath.io">SignPath.io</a>, certificate by <a href="https://signpath.org">SignPath Foundation</a>. See the <a href="https://github.com/Fahed-Alhammadi/RemoteSSH#code-signing-policy">code signing policy</a>.</p>
       </div>
     </section>
 
@@ -304,7 +308,7 @@ cd macos
   <footer class="site-footer">
     <div class="wrap footer-grid">
       <div class="footer-brand">
-        <a class="brand" href="#top"><img src="images/icon-256.png" alt="" width="24" height="24"><span>RemoteSSH</span></a>
+        <a class="brand" href="#top"><img src="images/favicon-64.png" alt="" width="24" height="24"><span>RemoteSSH</span></a>
         <p>Free SFTP, FTP and FTPS client for macOS, Windows and Linux.</p>
       </div>
       <nav aria-label="Product">

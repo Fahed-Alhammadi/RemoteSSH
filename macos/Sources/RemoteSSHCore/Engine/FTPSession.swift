@@ -9,8 +9,10 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
     private let options: SessionOptions
     private weak var prompter: SessionPrompter?
     private let log: LogSink
+    private let pins: CertificatePinStore
     private let queue: DispatchQueue
-    private let handle = CurlHandle()
+    /// Only touched on `queue`: created by the first request, freed there by `disconnect()`.
+    private var handle: CurlHandle?
     /// Guards the mutable state below: operations on one session can run concurrently (browsing
     /// while a folder is being queued), and the curl queue reads `site` while callers update it.
     private let lock = NSLock()
@@ -18,6 +20,11 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
     private var listCommand: String?
     private var cachedHome: String?
     private var tlsActive = false
+    /// Set by `disconnect()` without going through the queue: the running request stops at its next
+    /// progress callback (curl calls it at least about once a second, also while connecting).
+    private var aborted = false
+    /// Base64 SHA-256 of the public key the user trusted; once set, it replaces CA verification.
+    private var pinnedKey: String?
 
     public var site: Site { lock.withLock { _site } }
 
@@ -25,14 +32,24 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
     /// known after `connect()`: a server without AUTH TLS falls back to plain FTP.
     public var isEncrypted: Bool { lock.withLock { tlsActive } }
 
-    init(site: Site, credentials: SessionCredentials, options: SessionOptions, prompter: SessionPrompter?, log: @escaping LogSink) {
+    init(site: Site, credentials: SessionCredentials, options: SessionOptions, prompter: SessionPrompter?,
+         certificatePins: CertificatePinStore, log: @escaping LogSink) {
         self._site = site
         self.credentials = credentials
         self.options = options
         self.prompter = prompter
+        self.pins = certificatePins
         self.log = log
         self.queue = DispatchQueue(label: "remotessh.ftp.\(site.host)")
     }
+
+    deinit {
+        // curl_easy_cleanup sends QUIT and can block: free the handle on the session queue, not on
+        // whichever thread (often the main one) dropped the last reference to the session.
+        if let handle { queue.async { withExtendedLifetime(handle) {} } }
+    }
+
+    private var isAborted: Bool { lock.withLock { aborted } }
 
     // MARK: URL building
 
@@ -61,7 +78,7 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
 
     // MARK: Option setup
 
-    private func applyBaseOptions(_ h: CurlHandle) {
+    private func applyBaseOptions(_ h: CurlHandle, pinning: Bool = true) {
         let site = self.site
         h.set(CURLOPT_USERNAME, site.effectiveUser.isEmpty ? "anonymous" : site.effectiveUser)
         h.set(CURLOPT_PASSWORD, site.logonType == .anonymous ? "anonymous@example.com" : credentials.password)
@@ -82,39 +99,104 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
         case .requireExplicit, .requireImplicit: h.set(CURLOPT_USE_SSL, Int(CURLUSESSL_ALL.rawValue))
         case .plain: h.set(CURLOPT_USE_SSL, Int(CURLUSESSL_NONE.rawValue))
         }
-        if site.trustInvalidCertificate {
+        if pinning, let pin = lock.withLock({ pinnedKey }) {
+            // The user trusted this certificate's key: accept that key, and only it, without CA verification.
+            // curl checks the pin on the control connection and on every TLS data connection.
             h.set(CURLOPT_SSL_VERIFYPEER, 0)
             h.set(CURLOPT_SSL_VERIFYHOST, 0)
+            h.set(CURLOPT_PINNEDPUBLICKEY, "sha256//\(pin)")
         }
         if options.downloadLimit > 0 { h.set(CURLOPT_MAX_RECV_SPEED_LARGE, offset: Int64(options.downloadLimit)) }
         if options.uploadLimit > 0 { h.set(CURLOPT_MAX_SEND_SPEED_LARGE, offset: Int64(options.uploadLimit)) }
     }
 
-    private struct CertificateFailure: Error { let message: String }
+    private struct CertificateFailure: Error {
+        let message: String
+        /// The certificate's key differs from the pinned one.
+        var pinMismatch = false
+    }
 
-    /// Runs a curl operation on the session queue. Handles the "untrusted certificate" prompt
-    /// and retries once if the user accepts it.
+    /// Runs a curl operation on the session queue. When the certificate can't be verified, it switches to
+    /// the key the user trusted (asking when there is none, or when it changed) and tries again.
     private func run<T>(_ body: @escaping (CurlHandle, CurlContext) throws -> T) async throws -> T {
-        do {
-            return try await perform(body)
-        } catch let failure as CertificateFailure {
-            let accepted = await prompter?.confirmCertificate(host: site.host, port: site.effectivePort, reason: failure.message) ?? false
-            guard accepted else { throw RemoteSSHError.certificateRejected }
-            lock.withLock { _site.trustInvalidCertificate = true }
-            log(LogLine(.status, "Certificate accepted by user for \(site.host)"))
-            return try await perform(body)
+        var failures = 0
+        while true {
+            do {
+                return try await perform(body)
+            } catch let failure as CertificateFailure {
+                failures += 1
+                guard failures <= 2 else { throw RemoteSSHError.certificateRejected }
+                try await trustCertificate(after: failure)
+            }
+        }
+    }
+
+    /// Picks the public key to pin after a verification failure: one trusted before (saved, or accepted on
+    /// another connection this run), else the server's current certificate once the user accepts it.
+    private func trustCertificate(after failure: CertificateFailure) async throws {
+        let site = self.site
+        let host = site.host, port = site.effectivePort
+        if !failure.pinMismatch, lock.withLock({ pinnedKey }) == nil, let known = pins.pin(host: host, port: port) {
+            lock.withLock { pinnedKey = known.publicKeySHA256 }
+            return
+        }
+        let certificate = try await fetchCertificate()
+        let known = pins.pin(host: host, port: port)
+        if let known, known.publicKeySHA256 == certificate.publicKeySHA256 {
+            // Another request of this session (or another connection) got it accepted meanwhile.
+        } else if site.trustInvalidCertificate, known == nil {
+            // Sites saved with the old "trust any certificate" setting: pin the certificate seen now.
+            pins.trust(certificate, host: host, port: port, remember: true)
+            log(LogLine(.status, "Pinned the TLS certificate of \(host):\(port) (\(certificate.subject), SHA-256 \(certificate.fingerprint)): the site trusts the server's certificate, and from now on only this one is accepted"))
+        } else {
+            let answer = await prompter?.confirmCertificate(host: host, port: port, certificate: certificate,
+                                                            reason: failure.message, changed: failure.pinMismatch) ?? .reject
+            guard answer != .reject else { throw RemoteSSHError.certificateRejected }
+            pins.trust(certificate, host: host, port: port, remember: answer == .always)
+            log(LogLine(.status, "Certificate trusted by user for \(host):\(port) (SHA-256 \(certificate.fingerprint))"))
+        }
+        lock.withLock { pinnedKey = certificate.publicKeySHA256 }
+    }
+
+    /// The certificate the server presents, read without verification on a throwaway handle that logs in
+    /// anonymously (the site's credentials are never sent over the unverified connection).
+    private func fetchCertificate() async throws -> CertificatePin {
+        try await withCheckedThrowingContinuation { cont in
+            queue.async { [self] in
+                let h = CurlHandle()
+                applyBaseOptions(h, pinning: false)
+                h.set(CURLOPT_USERNAME, "anonymous")
+                h.set(CURLOPT_PASSWORD, "anonymous@example.com")
+                h.set(CURLOPT_SSL_VERIFYPEER, 0)
+                h.set(CURLOPT_SSL_VERIFYHOST, 0)
+                h.set(CURLOPT_CERTINFO, 1)
+                h.set(CURLOPT_URL, baseURL + "/")
+                h.set(CURLOPT_NOBODY, 1)
+                let ctx = CurlContext()
+                ctx.shouldAbort = { [weak self] in self?.isAborted ?? true }
+                let code = h.perform(ctx)
+                if let pin = h.leafCertificatePEM().flatMap(CertificatePin.init(pem:)) {
+                    cont.resume(returning: pin)
+                } else {
+                    cont.resume(throwing: RemoteSSHError.connectionFailed("Could not read the server's TLS certificate (\(CurlHandle.describe(code)))"))
+                }
+            }
         }
     }
 
     private func perform<T>(_ body: @escaping (CurlHandle, CurlContext) throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { cont in
             queue.async { [self] in
-                handle.reset()
-                applyBaseOptions(handle)
+                guard !isAborted else { return cont.resume(throwing: RemoteSSHError.notConnected) }
+                let h = handle ?? CurlHandle()
+                handle = h
+                h.reset()
+                applyBaseOptions(h)
                 let ctx = CurlContext()
                 ctx.log = log
-                let result = Result { try body(handle, ctx) }
-                noteNewConnection(ctx.responseLines)
+                ctx.shouldAbort = { [weak self] in self?.isAborted ?? true }
+                let result = Result { try body(h, ctx) }
+                noteNewConnection(ctx)
                 cont.resume(with: result)
             }
         }
@@ -122,15 +204,16 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
 
     /// A "220" greeting means this request opened a new control connection. Records whether it is
     /// encrypted; once TLS worked, later reconnects require it, so they can't be downgraded to plain FTP.
-    private func noteNewConnection(_ replies: [String]) {
-        guard replies.contains(where: { $0.hasPrefix("220") }) else { return }
+    private func noteNewConnection(_ ctx: CurlContext) {
+        guard ctx.responseLines.contains(where: { $0.hasPrefix("220") }) else { return }
         lock.withLock {
             switch _site.encryption {
             case .plain: tlsActive = false
             case .requireExplicit, .requireImplicit: tlsActive = true
             case .explicitIfAvailable:
-                // 234 (or 334 for AUTH SSL) accepts the AUTH command; without it curl carries on in plain text.
-                tlsActive = replies.contains { $0.hasPrefix("234") || $0.hasPrefix("334") }
+                // Only the reply to AUTH TLS (or AUTH SSL) counts: 234 (334) means curl went on to TLS, anything
+                // else that it carried on in plain text. A banner line starting with "234" is not that reply.
+                tlsActive = ctx.authReply.map { $0.hasPrefix("234") || $0.hasPrefix("334") } ?? false
                 if tlsActive { _site.encryption = .requireExplicit }
             }
         }
@@ -146,8 +229,14 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
         switch code {
         case CURLE_PEER_FAILED_VERIFICATION:
             throw CertificateFailure(message: CurlHandle.describe(code))
+        case CURLE_SSL_PINNEDPUBKEYNOTMATCH:
+            throw CertificateFailure(message: "The server's certificate is not the one that was trusted before.", pinMismatch: true)
         case CURLE_LOGIN_DENIED:
             throw RemoteSSHError.authenticationFailed(message)
+        case CURLE_REMOTE_ACCESS_DENIED:
+            throw RemoteSSHError.accessDenied(message)
+        case CURLE_REMOTE_FILE_NOT_FOUND:
+            throw RemoteSSHError.fileNotFound(message)
         case CURLE_ABORTED_BY_CALLBACK:
             throw RemoteSSHError.cancelled
         case CURLE_COULDNT_CONNECT, CURLE_COULDNT_RESOLVE_HOST, CURLE_OPERATION_TIMEDOUT, CURLE_USE_SSL_FAILED, CURLE_SSL_CONNECT_ERROR:
@@ -160,17 +249,26 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
     // MARK: RemoteSession
 
     public func connect() async throws {
+        lock.withLock { aborted = false }
         log(LogLine(.status, "Connecting to \(site.host):\(site.effectivePort)..."))
         let home = try await homeDirectory()
         log(LogLine(.status, "Logged in. Current directory: \(home)"))
     }
 
+    /// Stops the running request and closes the connection. Returns after at most about two seconds even
+    /// when the server is slow to answer; the handle is then freed in the background.
     public func disconnect() async {
-        await withCheckedContinuation { cont in
+        lock.withLock {
+            aborted = true
+            cachedHome = nil
+        }
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            let resume = ResumeOnce(cont)
             queue.async { [self] in
-                handle.reset()  // connection stays cached until the handle is freed
-                cont.resume()
+                handle = nil  // curl_easy_cleanup: QUIT, close the connection
+                resume()
             }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { resume() }
         }
         log(LogLine(.status, "Disconnected from server"))
     }
@@ -280,29 +378,26 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
     }
 
     public func download(_ remotePath: String, to localURL: URL, resumeFrom offset: Int64, cancel: CancelToken, progress: @escaping ProgressHandler) async throws {
-        let fm = FileManager.default
-        if offset == 0 || !fm.fileExists(atPath: localURL.path) {
-            fm.createFile(atPath: localURL.path, contents: nil)
-        }
-        let file = try FileHandle(forWritingTo: localURL)
-        defer { try? file.close() }
-        if offset > 0 { try file.seekToEnd() } else { try file.truncate(atOffset: 0) }
-
         log(LogLine(.status, "Starting download of \(remotePath)"))
-        try await run { h, ctx in
-            var writeError: Error?
-            ctx.onWrite = { buf in
-                do { try file.write(contentsOf: Data(buf)); return true } catch { writeError = error; return false }
+        try await DownloadTarget.write(to: localURL, resumeFrom: offset) { target in
+            let file = target.handle
+            try await run { h, ctx in
+                // A request retried after a certificate prompt starts over at the resume point.
+                try file.truncate(atOffset: UInt64(offset))
+                var writeError: Error?
+                ctx.onWrite = { buf in
+                    do { try file.write(contentsOf: Data(buf)); return true } catch { writeError = error; return false }
+                }
+                ctx.onProgress = { total, now, _, _ in
+                    progress(TransferProgress(transferred: offset + now, total: total > 0 ? offset + total : nil))
+                    return !cancel.isCancelled
+                }
+                h.set(CURLOPT_URL, self.url(for: remotePath, directory: false))
+                if offset > 0 { h.set(CURLOPT_RESUME_FROM_LARGE, offset: offset) }
+                let code = h.perform(ctx)
+                if let writeError { throw writeError }
+                try self.check(code, ctx)
             }
-            ctx.onProgress = { total, now, _, _ in
-                progress(TransferProgress(transferred: offset + now, total: total > 0 ? offset + total : nil))
-                return !cancel.isCancelled
-            }
-            h.set(CURLOPT_URL, self.url(for: remotePath, directory: false))
-            if offset > 0 { h.set(CURLOPT_RESUME_FROM_LARGE, offset: offset) }
-            let code = h.perform(ctx)
-            if let writeError { throw writeError }
-            try self.check(code, ctx)
         }
         log(LogLine(.status, "File transfer successful, transferred \(remotePath)"))
     }
@@ -332,5 +427,21 @@ public final class FTPSession: RemoteSession, @unchecked Sendable {
             try self.check(h.perform(ctx), ctx)
         }
         log(LogLine(.status, "File transfer successful, transferred \(localURL.lastPathComponent)"))
+    }
+}
+
+/// Resumes a continuation once, whichever of several racing callers comes first.
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    init(_ continuation: CheckedContinuation<Void, Never>) { self.continuation = continuation }
+
+    func callAsFunction() {
+        let c = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            defer { continuation = nil }
+            return continuation
+        }
+        c?.resume()
     }
 }

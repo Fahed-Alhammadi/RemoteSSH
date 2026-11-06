@@ -20,10 +20,12 @@ import type {
 } from '../shared/types'
 import { errorMessage, Permissions, RemotePath } from '../shared/util'
 import { FTPSession } from './engine/ftpSession'
-import { listLocal, localChild, localStat, opensAsProgram } from './engine/localFS'
+import { listLocal, localChild, localStat, markFromInternet, opensAsProgram } from './engine/localFS'
 import { ask, CancelledError, SessionError, type Prompter, type RemoteSession, type SessionContext } from './engine/session'
 import { SFTPSession } from './engine/sftpSession'
+import { CertificateStore } from './store/certificates'
 import { KnownHostsStore } from './store/knownHosts'
+import { TLSHostsStore } from './store/tlsHosts'
 import { ARCHIVE_EXTENSION, decodeArchive, encodeArchive } from './store/siteArchive'
 import { SiteStore, type SecretCipher } from './store/siteStore'
 import { QueueStore, SettingsStore } from './store/settingsStore'
@@ -32,19 +34,26 @@ import { TransferManager } from './transfers'
 
 type Handler = (...args: never[]) => unknown
 
+/** Where a downloaded file came from (for Mark-of-the-Web), without the user name. */
+function sourceURL(site: Site): string {
+  const scheme = site.serverProtocol === 'sftp' ? 'sftp' : 'ftp'
+  return `${scheme}://${site.host}:${effectivePort(site)}/`
+}
+
 /** Main-process application state: sites, the browsing connection, transfers and UI prompts. */
 export class Controller implements Prompter {
   private readonly sites: SiteStore
   private readonly settingsStore: SettingsStore
   private readonly knownHosts: KnownHostsStore
+  private readonly certificates: CertificateStore
+  /** FTP servers where "explicit TLS if available" worked; later connections must use TLS too (saved). */
+  private readonly tlsHosts: TLSHostsStore
   readonly transfers: TransferManager
   private session: RemoteSession | null = null
   private site: Site | null = null
   /** Quickconnect sites (not in the site manager) and passwords entered this run. */
   private transientSites = new Map<string, Site>()
   private sessionPasswords = new Map<string, string>()
-  /** FTP sites ("explicit TLS if available") that used TLS this run; later connections must use it too. */
-  private tlsSites = new Set<string>()
   private pendingPrompts = new Map<number, (value: unknown) => void>()
   /** Bumped by every connect and disconnect, so a superseded `open()` can tell it is stale. */
   private connectGeneration = 0
@@ -63,6 +72,7 @@ export class Controller implements Prompter {
       return s
     },
     send: (channel, payload) => this.send(channel, payload),
+    error: (text) => this.log('error', `Terminal: ${text}`),
   })
 
   constructor(
@@ -73,6 +83,8 @@ export class Controller implements Prompter {
     this.sites = new SiteStore(dataDir, cipher)
     this.settingsStore = new SettingsStore(dataDir)
     this.knownHosts = new KnownHostsStore(dataDir)
+    this.certificates = new CertificateStore(dataDir)
+    this.tlsHosts = new TLSHostsStore(dataDir)
     this.transfers = new TransferManager(
       {
         settings: () => this.settingsStore.value,
@@ -111,6 +123,8 @@ export class Controller implements Prompter {
       saveSettings: (s: AppSettings) => {
         this.settingsStore.save(s)
         nativeTheme.themeSource = s.theme
+        // Pooled connections keep the limits and timeouts they were opened with.
+        this.transfers.closeIdle()
         this.transfers.resume()
       },
       chooseKeyFile: () => this.choose('openFile', 'Choose key file', path.join(os.homedir(), '.ssh')),
@@ -150,6 +164,7 @@ export class Controller implements Prompter {
       terminalInput: (id: number, data: string) => this.terminals.write(id, data),
       terminalResize: (id: number, cols: number, rows: number) => this.terminals.resize(id, cols, rows),
       terminalClose: (id: number) => this.terminals.close(id),
+      terminalAck: (id: number, chars: number) => this.terminals.ack(id, chars),
       answerPrompt: (id: number, value: unknown) => {
         this.pendingPrompts.get(id)?.(value)
         this.pendingPrompts.delete(id)
@@ -224,6 +239,10 @@ export class Controller implements Prompter {
     const state = this.sites.state()
     await this.sites.save({ sites: [...state.sites, ...sites], passwords })
     const stored = Object.keys(passwords).length
+    const plain = sites.filter((s) => s.serverProtocol === 'ftp' && s.encryption === 'plain')
+    if (plain.length) {
+      this.log('error', `Imported site${plain.length === 1 ? '' : 's'} using plain FTP (password sent unencrypted): ${plain.map((s) => s.name).join(', ')}. Check the encryption setting in the Site Manager.`)
+    }
     this.log('status', `Imported ${sites.length} site${sites.length === 1 ? '' : 's'}${stored && !state.canStorePasswords ? ' (passwords not saved: no secure storage available)' : ''}.`)
     return this.sites.state()
   }
@@ -299,7 +318,7 @@ export class Controller implements Prompter {
    */
   private connected(site: Site, session: RemoteSession, password: string): void {
     if (site.logonType !== 'anonymous' && site.logonType !== 'keyFile') this.sessionPasswords.set(site.id, password)
-    if (site.serverProtocol === 'ftp' && session.secure) this.tlsSites.add(site.id)
+    if (site.serverProtocol === 'ftp' && session.secure) this.tlsHosts.add(site.host, effectivePort(site))
   }
 
   private makeSession(site: Site, password: string, quiet = false): RemoteSession {
@@ -312,13 +331,14 @@ export class Controller implements Prompter {
         keepAlive: s.keepAlive,
         downloadLimit: s.downloadLimitKiB * 1024,
         uploadLimit: s.uploadLimitKiB * 1024,
-        requireTLS: this.tlsSites.has(site.id),
+        requireTLS: site.serverProtocol === 'ftp' && this.tlsHosts.has(site.host, effectivePort(site)),
       },
       prompter: this,
       // Transfer connections only report errors, so the log stays readable.
       log: quiet ? (kind, text) => kind === 'error' && this.log(kind, text) : (kind, text) => this.log(kind, text),
       trustCertificate: (updated) => this.trustCertificate(updated),
       hostKeys: this.knownHosts,
+      certificates: this.certificates,
     }
     return site.serverProtocol === 'sftp' ? new SFTPSession(ctx) : new FTPSession(ctx)
   }
@@ -401,6 +421,7 @@ export class Controller implements Prompter {
 
   disconnect(): void {
     this.connectGeneration++
+    this.transfers.closeIdle()
     const s = this.session
     this.session = null
     if (s) {
@@ -457,23 +478,31 @@ export class Controller implements Prompter {
     })
     if (!answer) return
     await this.remote(async (s) => {
+      // Children are changed before their folder, so a mode without x on the folder can't lock the walk out;
+      // folders keep x wherever r is set, so e.g. 644 for "everything" leaves them openable (755).
       const apply = async (p: string, isDir: boolean): Promise<void> => {
-        await s.chmod(p, answer.mode)
         if (isDir && answer.recursive) {
           for (const c of await s.list(p)) await apply(RemotePath.join(p, c.name), c.isDirectory && !c.isLink)
         }
+        await s.chmod(p, isDir && answer.recursive ? Permissions.folderMode(answer.mode) : answer.mode)
       }
-      for (const e of entries) await apply(RemotePath.join(dir, e.name), e.isDirectory)
+      for (const e of entries) await apply(RemotePath.join(dir, e.name), e.isDirectory && !e.isLink)
     })
   }
 
   private async viewEdit(dir: string, entry: FileEntry): Promise<void> {
     const site = this.requireSite()
     const remotePath = RemotePath.join(dir, entry.name)
-    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'remotessh-edit-'))
-    const local = localChild(tmpDir, entry.name)
-    if (local == null) throw new SessionError(`"${entry.name}" is not a valid local file name.`)
-    await this.remote((s) => s.download(remotePath, local, 0, new AbortController().signal, () => undefined))
+    if (localChild(os.tmpdir(), entry.name) == null) throw new SessionError(`"${entry.name}" is not a valid local file name.`)
+    const tmpDir = await this.edits.tempDir()
+    const local = path.join(tmpDir, entry.name)
+    try {
+      await this.remote((s) => s.download(remotePath, local, 0, new AbortController().signal, () => undefined))
+    } catch (e) {
+      this.edits.discard(tmpDir)
+      throw e
+    }
+    markFromInternet(local, sourceURL(site))
     this.edits.watch(local, remotePath, site.id)
     // Opening a script or program "with its default app" would run it, so show it in its folder instead.
     if (opensAsProgram(entry.name)) {
@@ -504,7 +533,11 @@ export class Controller implements Prompter {
   }
 
   private transferFinished(item: TransferItem): void {
-    if (item.direction === 'download') this.send(Events.refresh, ['local', path.dirname(item.localPath)])
+    if (item.direction === 'download') {
+      const site = this.findSite(item.siteID)
+      if (site) markFromInternet(item.localPath, sourceURL(site))
+      this.send(Events.refresh, ['local', path.dirname(item.localPath)])
+    }
     else this.send(Events.refresh, ['remote', RemotePath.parent(item.remotePath)])
   }
 
@@ -514,6 +547,7 @@ export class Controller implements Prompter {
     this.session?.close()
     this.terminals.closeAll()
     this.edits.stop()
+    this.edits.removeTempDirs()
   }
 
   showWindow(): BrowserWindow | null {
@@ -526,8 +560,36 @@ class EditWatcher {
   private files: { local: string; remote: string; siteID: string; modified: number }[] = []
   private timer: NodeJS.Timeout | null = null
   private asking = false
+  /** Temporary folders holding View/Edit copies of server files; removed when no longer watched and on quit. */
+  private tempDirs = new Set<string>()
 
   constructor(private readonly controller: Controller) {}
+
+  async tempDir(): Promise<string> {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'remotessh-edit-'))
+    this.tempDirs.add(dir)
+    return dir
+  }
+
+  discard(dir: string): void {
+    fs.rmSync(dir, { recursive: true, force: true })
+    this.tempDirs.delete(dir)
+  }
+
+  removeTempDirs(): void {
+    for (const dir of this.tempDirs) fs.rmSync(dir, { recursive: true, force: true })
+    this.tempDirs.clear()
+  }
+
+  /** Removes temp folders whose file is gone (deleted by the user) and no longer watched. */
+  private prune(): void {
+    const watched = new Set(this.files.map((f) => path.dirname(f.local)))
+    for (const dir of this.tempDirs) {
+      if (watched.has(dir)) continue
+      fs.rmSync(dir, { recursive: true, force: true })
+      this.tempDirs.delete(dir)
+    }
+  }
 
   watch(local: string, remote: string, siteID: string): void {
     this.files.push({ local, remote, siteID, modified: localStat(local)?.modified ?? 0 })
@@ -537,6 +599,7 @@ class EditWatcher {
   private async poll(): Promise<void> {
     if (this.asking) return
     this.files = this.files.filter((f) => fs.existsSync(f.local))
+    this.prune()
     if (!this.files.length) return this.stop()
     for (const f of this.files) {
       const now = localStat(f.local)?.modified

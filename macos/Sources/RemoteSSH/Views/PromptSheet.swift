@@ -40,12 +40,28 @@ struct PromptSheet: View {
             // For a changed key, Return cancels: accepting it must be a deliberate click.
             buttons(ok: changed ? "Trust New Key" : "Trust", cancel: "Cancel", okIsDefault: !changed) { model.prompts.answer(.bool($0)) }
 
-        case let .certificate(host, port, reason):
-            Label("Unknown certificate", systemImage: "lock.trianglebadge.exclamationmark").font(.headline)
-            Text("The server's TLS certificate for \(host):\(String(port)) could not be verified:")
-            Text(reason).font(.system(.body, design: .monospaced)).foregroundStyle(Theme.warning)
-            Text("Connect anyway? The certificate will be trusted for this connection.").foregroundStyle(.secondary)
-            buttons(ok: "Connect Anyway", cancel: "Cancel") { model.prompts.answer(.bool($0)) }
+        case let .certificate(host, port, certificate, reason, changed):
+            Label(changed ? "WARNING: The server's certificate has CHANGED!" : "Unknown certificate",
+                  systemImage: changed ? "exclamationmark.octagon.fill" : "lock.trianglebadge.exclamationmark")
+                .font(.headline)
+                .foregroundStyle(changed ? Theme.danger : .primary)
+            Text(changed
+                 ? "The TLS certificate of \(host):\(String(port)) is not the one you trusted before. Someone could be trying to intercept the connection, or the server got a new certificate."
+                 : "The server's TLS certificate for \(host):\(String(port)) could not be verified:")
+            if !changed {
+                Text(reason).font(.system(.body, design: .monospaced)).foregroundStyle(Theme.warning)
+            }
+            Grid(alignment: .leading) {
+                GridRow { Text("Subject:").foregroundStyle(.secondary); Text(certificate.subject).textSelection(.enabled) }
+                GridRow(alignment: .top) {
+                    Text("SHA-256:").foregroundStyle(.secondary)
+                    Text(certificate.fingerprint).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Text("Only trust it if the fingerprint matches the server's certificate. Afterwards, only this certificate is accepted for the server.")
+                .foregroundStyle(.secondary)
+            certificateButtons(changed: changed)
 
         case let .password(p):
             Label("Enter password", systemImage: "key.fill").font(.headline)
@@ -88,6 +104,22 @@ struct PromptSheet: View {
             Text(f.path).lineLimit(1).truncationMode(.middle)
             Text([Format.bytes(f.size), Format.date(f.modified)].filter { !$0.isEmpty }.joined(separator: ", "))
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Cancel, Connect Once (this run) and Always Trust (saved). For a changed certificate, Return cancels.
+    private func certificateButtons(changed: Bool) -> some View {
+        HStack {
+            Spacer()
+            if changed {
+                Button("Connect Once", role: .destructive) { model.prompts.answer(.trust(.once)) }
+                Button("Always Trust New Certificate", role: .destructive) { model.prompts.answer(.trust(.always)) }
+                Button("Cancel") { model.prompts.answer(.trust(.reject)) }.keyboardShortcut(.defaultAction)
+            } else {
+                Button("Cancel") { model.prompts.answer(.trust(.reject)) }.keyboardShortcut(.cancelAction)
+                Button("Connect Once") { model.prompts.answer(.trust(.once)) }
+                Button("Always Trust") { model.prompts.answer(.trust(.always)) }.keyboardShortcut(.defaultAction)
+            }
         }
     }
 

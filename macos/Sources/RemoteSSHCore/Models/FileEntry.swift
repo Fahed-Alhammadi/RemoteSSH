@@ -155,6 +155,10 @@ public enum RemoteSSHError: LocalizedError, Sendable {
     case hostKeyRejected
     case authenticationFailed(String)
     case unsupported(String)
+    /// The server refused access to the file or folder (retrying won't help).
+    case accessDenied(String)
+    /// The file or folder doesn't exist on the server.
+    case fileNotFound(String)
 
     public var errorDescription: String? {
         switch self {
@@ -167,6 +171,8 @@ public enum RemoteSSHError: LocalizedError, Sendable {
         case .hostKeyRejected: return "The server's host key was rejected."
         case .authenticationFailed(let m): return "Authentication failed: \(m)"
         case .unsupported(let m): return m
+        case .accessDenied(let m): return m
+        case .fileNotFound(let m): return m
         }
     }
 }

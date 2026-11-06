@@ -20,9 +20,9 @@ final class AcceptAllPrompter: SessionPrompter, @unchecked Sendable {
         lock.withLock { hostKeyPrompts += 1 }
         return true
     }
-    func confirmCertificate(host: String, port: Int, reason: String) async -> Bool {
+    func confirmCertificate(host: String, port: Int, certificate: CertificatePin, reason: String, changed: Bool) async -> CertificateTrust {
         lock.withLock { certPrompts += 1 }
-        return true
+        return .once
     }
     func requestPassword(prompt: String) async -> String? { passphrase }
 }
@@ -102,13 +102,70 @@ private func exercise(_ session: RemoteSession) async throws {
         let site = Site(host: env["RSSH_FTP_HOST"]!, port: Int(env["RSSH_FTP_PORT"] ?? "21")!, serverProtocol: .ftp,
                         encryption: encryption, logonType: .normal, user: env["RSSH_FTP_USER"]!)
         let prompter = AcceptAllPrompter()
+        let pins = CertificatePinStore(url: nil)
         let session = SessionFactory.make(site: site, credentials: .init(password: env["RSSH_FTP_PASS"]!), options: .init(),
-                                          prompter: prompter, hostKeys: KnownHostsStore(url: tmpURL()), log: { _ in })
+                                          prompter: prompter, hostKeys: KnownHostsStore(url: tmpURL()), certificatePins: pins, log: { _ in })
         try await exercise(session)
         // The test server supports AUTH TLS, so "if available" must have negotiated it.
         #expect(session.isEncrypted == (encryption != .plain))
-        // Self-signed test certificate → exactly one trust prompt when TLS is used.
+        // Self-signed test certificate → exactly one trust prompt when TLS is used, and its key is pinned.
         #expect(prompter.certPrompts == (encryption == .plain ? 0 : 1))
+        #expect((pins.pin(host: site.host, port: site.effectivePort) != nil) == (encryption != .plain))
+
+        // Another connection to the server (e.g. a transfer) uses the pinned key without asking again.
+        let again = SessionFactory.make(site: site, credentials: .init(password: env["RSSH_FTP_PASS"]!), options: .init(),
+                                        prompter: prompter, hostKeys: KnownHostsStore(url: tmpURL()), certificatePins: pins, log: { _ in })
+        try await again.connect()
+        _ = try await again.list(try await again.homeDirectory())
+        await again.disconnect()
+        #expect(prompter.certPrompts == (encryption == .plain ? 0 : 1))
+    }
+
+    /// A pinned key that no longer matches the server's certificate is reported as a change.
+    @Test(.enabled(if: env["RSSH_FTP_HOST"] != nil))
+    func ftpsChangedCertificate() async throws {
+        final class Recorder: SessionPrompter, @unchecked Sendable {
+            let lock = NSLock()
+            var changed: [Bool] = []
+            func confirmHostKey(host: String, port: Int, keyType: String, fingerprint: String, changed: Bool) async -> Bool { false }
+            func confirmCertificate(host: String, port: Int, certificate: CertificatePin, reason: String, changed: Bool) async -> CertificateTrust {
+                lock.withLock { self.changed.append(changed) }
+                return .reject
+            }
+            func requestPassword(prompt: String) async -> String? { nil }
+        }
+        let site = Site(host: env["RSSH_FTP_HOST"]!, port: Int(env["RSSH_FTP_PORT"] ?? "21")!, serverProtocol: .ftp,
+                        encryption: .requireExplicit, logonType: .normal, user: env["RSSH_FTP_USER"]!)
+        let pins = CertificatePinStore(url: nil)
+        pins.trust(CertificatePin(publicKeySHA256: Data(repeating: 7, count: 32).base64EncodedString(), fingerprint: "old", subject: "old"),
+                   host: site.host, port: site.effectivePort, remember: false)
+        let prompter = Recorder()
+        let session = SessionFactory.make(site: site, credentials: .init(password: env["RSSH_FTP_PASS"]!), options: .init(),
+                                          prompter: prompter, hostKeys: KnownHostsStore(url: tmpURL()), certificatePins: pins, log: { _ in })
+        await #expect(throws: RemoteSSHError.self) { try await session.connect() }
+        #expect(prompter.lock.withLock { prompter.changed } == [true])
+    }
+
+    /// Disconnect stops a running FTP request instead of waiting for it.
+    @Test(.enabled(if: env["RSSH_FTP_HOST"] != nil), .timeLimit(.minutes(1)))
+    func ftpDisconnectAborts() async throws {
+        let site = Site(host: env["RSSH_FTP_HOST"]!, port: Int(env["RSSH_FTP_PORT"] ?? "21")!, serverProtocol: .ftp,
+                        encryption: .plain, logonType: .normal, user: env["RSSH_FTP_USER"]!)
+        var options = SessionOptions()
+        options.uploadLimit = 16 * 1024  // slow enough to still be running when Disconnect comes
+        let session = SessionFactory.make(site: site, credentials: .init(password: env["RSSH_FTP_PASS"]!), options: options,
+                                          prompter: AcceptAllPrompter(), hostKeys: KnownHostsStore(url: tmpURL()), log: { _ in })
+        try await session.connect()
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("fr-slow-\(UUID())")
+        try Data(count: 4 << 20).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let remote = RemotePath.join(try await session.homeDirectory(), "fr-slow-\(UUID().uuidString.prefix(8)).bin")
+        let upload = Task { try await session.upload(file, to: remote, resumeFrom: 0, cancel: CancelToken()) { _ in } }
+        try await Task.sleep(for: .seconds(1))
+        let started = ContinuousClock.now
+        await session.disconnect()
+        #expect(ContinuousClock.now - started < .seconds(5))
+        await #expect(throws: RemoteSSHError.self) { try await upload.value }
     }
 
     @Test(.enabled(if: env["RSSH_FTP_HOST"] != nil))
@@ -157,7 +214,7 @@ private func exercise(_ session: RemoteSession) async throws {
     func sftpRejectedHostKey() async throws {
         final class RejectAll: SessionPrompter, @unchecked Sendable {
             func confirmHostKey(host: String, port: Int, keyType: String, fingerprint: String, changed: Bool) async -> Bool { false }
-            func confirmCertificate(host: String, port: Int, reason: String) async -> Bool { false }
+            func confirmCertificate(host: String, port: Int, certificate: CertificatePin, reason: String, changed: Bool) async -> CertificateTrust { .reject }
             func requestPassword(prompt: String) async -> String? { nil }
         }
         let site = Site(host: env["RSSH_SFTP_HOST"]!, port: Int(env["RSSH_SFTP_PORT"] ?? "22")!, serverProtocol: .sftp,
@@ -170,7 +227,7 @@ private func exercise(_ session: RemoteSession) async throws {
 }
 
 extension IntegrationTests {
-    @Test(.enabled(if: env["RSSH_SFTP_HOST"] != nil))
+    @Test(.enabled(if: env["RSSH_SFTP_HOST"] != nil), .timeLimit(.minutes(1)))
     func sftpShell() async throws {
         let site = Site(host: env["RSSH_SFTP_HOST"]!, port: Int(env["RSSH_SFTP_PORT"] ?? "22")!, serverProtocol: .sftp,
                         logonType: .keyFile, user: env["RSSH_SFTP_USER"]!, keyFilePath: env["RSSH_SFTP_KEY"]!)

@@ -11,14 +11,33 @@ final class CurlContext {
     var onRead: ((UnsafeMutableRawBufferPointer) -> Int)?
     var onHeader: ((String) -> Void)?
     var onProgress: ((Int64, Int64, Int64, Int64) -> Bool)?
+    /// Polled from curl's progress callback (at least about once a second, also while connecting);
+    /// returning true aborts the request with CURLE_ABORTED_BY_CALLBACK.
+    var shouldAbort: (() -> Bool)?
     var log: LogSink?
     var responseLines: [String] = []
+    /// The final reply line to an AUTH TLS / AUTH SSL command sent during this request, read from the
+    /// protocol stream in order, so a greeting line that merely starts with "234" can't count as one.
+    private(set) var authReply: String?
+    private var awaitingAuthReply = false
+
+    fileprivate func noteSent(_ line: String) {
+        if line.uppercased().hasPrefix("AUTH ") { awaitingAuthReply = true }
+    }
+
+    fileprivate func noteReceived(_ line: String) {
+        // Multi-line replies end with "NNN " (the "NNN-" lines before it are continuations).
+        guard awaitingAuthReply, line.count >= 4, line.prefix(3).allSatisfy(\.isNumber),
+              line[line.index(line.startIndex, offsetBy: 3)] == " " else { return }
+        authReply = line
+        awaitingAuthReply = false
+    }
 }
 
 /// Owns one CURL easy handle. curl keeps the control connection alive inside the handle,
 /// so reusing it for consecutive operations reuses the FTP session.
-/// Not thread safe: callers serialise access (FTPSession uses a serial queue).
-final class CurlHandle {
+/// Not thread safe: callers serialise access (FTPSession uses a serial queue, and frees the handle there).
+final class CurlHandle: @unchecked Sendable {
     let raw: UnsafeMutableRawPointer
     private var slists: [UnsafeMutablePointer<curl_slist>] = []
 
@@ -83,34 +102,41 @@ final class CurlHandle {
             }
             return count
         }, ptr)
-        if context.onProgress != nil {
+        if context.onProgress != nil || context.shouldAbort != nil {
             ccurl_set_xferinfo(raw, { ud, dt, dn, ut, un in
                 let ctx = Unmanaged<CurlContext>.fromOpaque(ud!).takeUnretainedValue()
+                if ctx.shouldAbort?() == true { return 1 }
                 return (ctx.onProgress?(Int64(dt), Int64(dn), Int64(ut), Int64(un)) ?? true) ? 0 : 1
             }, ptr)
         }
-        if context.log != nil {
-            ccurl_set_debug(raw, { _, type, data, size, ud in
-                let ctx = Unmanaged<CurlContext>.fromOpaque(ud!).takeUnretainedValue()
-                guard let data, let text = String(bytes: UnsafeRawBufferPointer(start: data, count: size), encoding: .utf8) else { return 0 }
-                for line in text.split(whereSeparator: \.isNewline) {
-                    let l = String(line)
-                    switch type {
-                    case CURLINFO_HEADER_OUT:
-                        let masked = l.uppercased().hasPrefix("PASS ") ? "PASS ****" : l
-                        ctx.log?(LogLine(.command, masked))
-                    case CURLINFO_HEADER_IN:
-                        ctx.log?(LogLine(.response, l))
-                    case CURLINFO_TEXT:
-                        ctx.log?(LogLine(.trace, l))
-                    default:
-                        break
-                    }
+        // Always on: besides logging, the command/reply order tells which reply answered AUTH TLS.
+        ccurl_set_debug(raw, { _, type, data, size, ud in
+            let ctx = Unmanaged<CurlContext>.fromOpaque(ud!).takeUnretainedValue()
+            guard let data, let text = String(bytes: UnsafeRawBufferPointer(start: data, count: size), encoding: .utf8) else { return 0 }
+            for line in text.split(whereSeparator: \.isNewline) {
+                let l = String(line)
+                switch type {
+                case CURLINFO_HEADER_OUT:
+                    ctx.noteSent(l)
+                    let masked = l.uppercased().hasPrefix("PASS ") ? "PASS ****" : l
+                    ctx.log?(LogLine(.command, masked))
+                case CURLINFO_HEADER_IN:
+                    ctx.noteReceived(l)
+                    ctx.log?(LogLine(.response, l))
+                case CURLINFO_TEXT:
+                    ctx.log?(LogLine(.trace, l))
+                default:
+                    break
                 }
-                return 0
-            }, ptr)
-        }
+            }
+            return 0
+        }, ptr)
         return curl_easy_perform(raw)
+    }
+
+    /// The server certificate seen by the last request, when it ran with CURLOPT_CERTINFO.
+    func leafCertificatePEM() -> String? {
+        ccurl_leaf_certificate_pem(raw).map { String(cString: $0) }
     }
 
 

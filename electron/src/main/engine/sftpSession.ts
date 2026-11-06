@@ -10,6 +10,8 @@ import {
   ask,
   CancelledError,
   expandHome,
+  PermanentError,
+  sessionError,
   SessionError,
   Throttle,
   type ProgressHandler,
@@ -17,6 +19,14 @@ import {
   type RemoteStat,
   type SessionContext,
 } from './session'
+
+/**
+ * A keyboard-interactive prompt that asks for the account password ("Password:", "user@host's password:"),
+ * not a one-time password or verification code; only those get the saved password.
+ */
+export function isPasswordPrompt(prompt: string): boolean {
+  return /^\s*(?:\S+'s\s+)?password\s*:?\s*$/i.test(prompt)
+}
 
 const S_IFMT = 0o170000
 const S_IFDIR = 0o040000
@@ -38,15 +48,30 @@ export class SFTPSession implements RemoteSession {
   async connect(): Promise<void> {
     const { site, options, log } = this.ctx
     const port = effectivePort(site)
+    // ssh2's own readyTimeout keeps running while the user reads a host key or types a one-time code,
+    // so it is off and this timer is paused while a question is open.
+    let timer: NodeJS.Timeout | null = null
+    let onTimeout = () => undefined as void
+    const pause = () => {
+      if (timer) clearTimeout(timer)
+      timer = null
+    }
+    const arm = () => {
+      pause()
+      if (options.connectTimeout > 0) timer = setTimeout(() => onTimeout(), options.connectTimeout * 1000)
+    }
     const config: ConnectConfig = {
       host: site.host,
       port,
       username: effectiveUser(site),
-      readyTimeout: options.connectTimeout * 1000,
+      readyTimeout: 0,
       keepaliveInterval: options.keepAlive ? 30_000 : 0,
       tryKeyboard: site.logonType !== 'keyFile',
       hostVerifier: (key: Buffer, verify: (ok: boolean) => void) => {
-        this.verifyHostKey(key).then(verify, () => verify(false))
+        pause()
+        this.verifyHostKey(key)
+          .then(verify, () => verify(false))
+          .finally(arm)
       },
     }
     if (site.logonType === 'keyFile') {
@@ -60,9 +85,15 @@ export class SFTPSession implements RemoteSession {
       const fail = (e: Error) => {
         if (settled) return
         settled = true
+        pause()
         this.closed = true
         this.client.end() // e.g. the SFTP subsystem failed after login: don't leave the socket open
         reject(e)
+      }
+      onTimeout = () => {
+        if (settled) return
+        fail(new SessionError('Timed out while connecting.'))
+        this.client.destroy()
       }
       // The saved password answers one hidden "Password" prompt; anything else (one-time codes,
       // a second factor, a repeated password prompt after a wrong one) is asked of the user.
@@ -71,17 +102,19 @@ export class SFTPSession implements RemoteSession {
         void (async () => {
           const answers: string[] = []
           for (const { prompt, echo } of prompts) {
-            if (!echo && !passwordUsed && this.ctx.password && /password/i.test(prompt)) {
+            if (!echo && !passwordUsed && this.ctx.password && isPasswordPrompt(prompt)) {
               passwordUsed = true
               answers.push(this.ctx.password)
               continue
             }
             const title = `${effectiveUser(site)}@${site.host}`
             const message = [instructions, prompt].filter(Boolean).join('\n')
+            pause()
             const answer = echo
               ? await ask(this.ctx.prompter, { kind: 'text', title, message, initial: '' })
               : await ask(this.ctx.prompter, { kind: 'password', title, message })
             if (answer == null) return fail(new CancelledError('Login cancelled.'))
+            arm()
             answers.push(answer)
           }
           finish(answers)
@@ -90,13 +123,15 @@ export class SFTPSession implements RemoteSession {
       this.client.once('ready', () => {
         this.client.sftp((err, sftp) => {
           if (err) return fail(new SessionError(err.message))
+          if (settled) return
           settled = true
+          pause()
           this.sftp = sftp
           resolve()
         })
       })
       this.client.on('error', (err: Error & { level?: string }) => {
-        if (err.level === 'client-authentication') fail(new SessionError(`Authentication failed: ${err.message}`))
+        if (err.level === 'client-authentication') fail(new PermanentError(`Authentication failed: ${err.message}`))
         // A rejected host key is the user's decision: CancelledError keeps the queue from asking again.
         else if (this.hostKeyRejected) fail(new CancelledError("The server's host key was rejected."))
         else fail(new SessionError(err.message))
@@ -105,6 +140,7 @@ export class SFTPSession implements RemoteSession {
         fail(this.hostKeyRejected ? new CancelledError("The server's host key was rejected.") : new SessionError('Connection closed.'))
         this.markClosed()
       })
+      arm()
       this.client.connect(config)
     })
     log('status', `Connected to ${site.host}`)
@@ -181,7 +217,7 @@ export class SFTPSession implements RemoteSession {
   private call<T>(fn: (sftp: SFTPWrapper, cb: (err: Error | null | undefined, value?: T) => void) => void): Promise<T> {
     return new Promise((resolve, reject) => {
       try {
-        fn(this.channel, (err, value) => (err ? reject(new SessionError(err.message)) : resolve(value as T)))
+        fn(this.channel, (err, value) => (err ? reject(sessionError(err)) : resolve(value as T)))
       } catch (e) {
         reject(e)
       }
@@ -312,7 +348,7 @@ export class SFTPSession implements RemoteSession {
         start((err) => {
           signal.removeEventListener('abort', abort)
           if (signal.aborted) return
-          if (err) reject(new SessionError(err.message))
+          if (err) reject(sessionError(err))
           else resolve()
         })
       } catch (e) {
@@ -327,7 +363,7 @@ export class SFTPSession implements RemoteSession {
       await (pipeline as (...args: unknown[]) => Promise<void>)(...streams, { signal })
     } catch (e) {
       if (signal.aborted) throw new CancelledError()
-      throw new SessionError((e as Error).message)
+      throw sessionError(e)
     }
   }
 }

@@ -14,15 +14,16 @@ extension AppModel {
             return
         }
         if reuse, let dir, let terminal, terminal.siteID == site.id, terminal.status == .connected {
-            terminal.changeDirectory(to: dir)
+            // A folder name with control characters would act as keys in the shell: refuse it.
+            if !terminal.changeDirectory(to: dir) { error(unsafeTerminalFolderMessage) }
         } else {
             terminal?.close()
             let password = password(for: site) ?? ""
             // Only errors from the terminal's connection go to the message log.
             let sink = makeLogSink()
-            terminal = TerminalController(site: site, startDirectory: dir) {
+            terminal = TerminalController(site: site, startDirectory: dir, makeSession: {
                 makeSession(for: site, password: password, log: { line in if line.kind == .error { sink(line) } })
-            }
+            }, onConnected: { [weak self] session in self?.noteConnected(session) })
             status("Terminal opened: \(site.effectiveUser)@\(site.host)")
         }
         showDock(.terminal)

@@ -86,6 +86,8 @@ export interface RemoteSSHApi {
   terminalInput(id: number, data: string): Promise<void>
   terminalResize(id: number, cols: number, rows: number): Promise<void>
   terminalClose(id: number): Promise<void>
+  /** Flow control: `chars` of terminal output have been drawn. */
+  terminalAck(id: number, chars: number): Promise<void>
 
   // Prompts
   answerPrompt(id: number, value: unknown): Promise<void>
@@ -119,7 +121,7 @@ export const invokeMethods = [
   'listRemote', 'remoteMkdir', 'remoteRename', 'remoteDelete', 'remoteChmod', 'rawCommand', 'viewEdit',
   'listLocal', 'localMkdir', 'localRename', 'localTrash', 'localOpen', 'localReveal',
   'download', 'upload', 'queueSnapshot', 'setProcessing', 'stopAll', 'removeTransfers', 'retryTransfers',
-  'clearFinished', 'terminalOpen', 'terminalInput', 'terminalResize', 'terminalClose', 'answerPrompt',
+  'clearFinished', 'terminalOpen', 'terminalInput', 'terminalResize', 'terminalClose', 'terminalAck', 'answerPrompt',
 ] as const satisfies readonly (keyof RemoteSSHApi)[]
 
 export type InvokeMethod = (typeof invokeMethods)[number]

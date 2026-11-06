@@ -72,7 +72,8 @@ public struct Site: Codable, Identifiable, Hashable, Sendable {
     public var defaultLocalDirectory: String
     public var defaultRemoteDirectory: String
     public var comments: String
-    /// Set after the user accepted an untrusted TLS certificate for this site.
+    /// "Trust the server's certificate on first connect": an unverifiable certificate is accepted without a
+    /// prompt the first time and pinned (see `CertificatePinStore`); later connections only accept that key.
     public var trustInvalidCertificate: Bool
 
     public init(
@@ -123,6 +124,49 @@ public struct Site: Codable, Identifiable, Hashable, Sendable {
         let scheme = serverProtocol == .sftp ? "sftp" : (encryption == .requireImplicit ? "ftps" : "ftp")
         let userPart = effectiveUser.isEmpty ? "" : "\(effectiveUser)@"
         return "\(scheme)://\(userPart)\(host):\(effectivePort)"
+    }
+
+    /// Lowercase "host:port", the key under which per-server state (such as "TLS worked here") is kept.
+    public var serverKey: String { "\(host.lowercased()):\(effectivePort)" }
+}
+
+extension Site {
+    private enum CodingKeys: String, CodingKey {
+        case id, name, folder, host, port, serverProtocol, encryption, logonType, user, keyFilePath, transferMode
+        case defaultLocalDirectory, defaultRemoteDirectory, comments, trustInvalidCertificate
+    }
+
+    /// Tolerant decoding (encoding stays synthesized and unchanged): only `id` is required. A missing,
+    /// mistyped or unknown value falls back to the default, so a file written by an older or newer version
+    /// (an added field, a new enum case) still loads instead of losing every site.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Site()
+        func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T {
+            (try? c.decodeIfPresent(T.self, forKey: key)) ?? fallback
+        }
+        func choice<T: RawRepresentable>(_ key: CodingKeys, _ fallback: T, unknown: T? = nil) -> T where T.RawValue == String {
+            guard let raw = try? c.decodeIfPresent(String.self, forKey: key) else { return fallback }
+            return T(rawValue: raw) ?? unknown ?? fallback
+        }
+        self.init(
+            id: try c.decode(UUID.self, forKey: .id),
+            name: value(.name, d.name),
+            folder: value(.folder, d.folder),
+            host: value(.host, d.host),
+            port: value(.port, d.port),
+            serverProtocol: choice(.serverProtocol, d.serverProtocol),
+            // An encryption mode this version doesn't know is never read as something weaker than TLS.
+            encryption: choice(.encryption, d.encryption, unknown: .requireExplicit),
+            logonType: choice(.logonType, d.logonType),
+            user: value(.user, d.user),
+            keyFilePath: value(.keyFilePath, d.keyFilePath),
+            transferMode: choice(.transferMode, d.transferMode),
+            defaultLocalDirectory: value(.defaultLocalDirectory, d.defaultLocalDirectory),
+            defaultRemoteDirectory: value(.defaultRemoteDirectory, d.defaultRemoteDirectory),
+            comments: value(.comments, d.comments),
+            trustInvalidCertificate: value(.trustInvalidCertificate, d.trustInvalidCertificate)
+        )
     }
 }
 

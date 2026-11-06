@@ -1,5 +1,27 @@
 import type { Site } from './types'
 
+/** Allowed values of the site's enum fields (the same raw values as the Swift enums). */
+export const SITE_ENUMS = {
+  serverProtocol: ['ftp', 'sftp'],
+  encryption: ['explicitIfAvailable', 'requireExplicit', 'requireImplicit', 'plain'],
+  logonType: ['anonymous', 'normal', 'askForPassword', 'keyFile'],
+  transferMode: ['passive', 'active'],
+} as const satisfies Partial<Record<keyof Site, readonly string[]>>
+
+/** Names of enum fields of `raw` whose value is not one of the allowed ones (missing fields are fine). */
+export function invalidSiteFields(raw: unknown): string[] {
+  const fields = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const bad: string[] = (Object.keys(SITE_ENUMS) as (keyof typeof SITE_ENUMS)[]).filter(
+    (k) => k in fields && !(SITE_ENUMS[k] as readonly unknown[]).includes(fields[k]),
+  )
+  if ('port' in fields && !isPort(fields.port)) bad.push('port')
+  return bad
+}
+
+function isPort(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 65535
+}
+
 export function newID(): string {
   return crypto.randomUUID().toUpperCase()
 }
@@ -36,6 +58,9 @@ export function normalizeSite(raw: Partial<Site>): Site {
   for (const key of Object.keys(site)) {
     if (typeof fields[key] === typeof out[key]) out[key] = fields[key]
   }
+  // Unknown enum values (a typo, "SFTP", a newer version's value) get the defaults, never a guess.
+  const defaults = makeSite()
+  for (const k of invalidSiteFields(site)) (out as Record<string, unknown>)[k] = (defaults as unknown as Record<string, unknown>)[k]
   site.id = site.id.toUpperCase()
   return site
 }

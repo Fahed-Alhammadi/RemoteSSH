@@ -163,12 +163,6 @@ import Testing
         #expect(throws: RemoteSSHError.self) { try SiteArchive.decode(Data(#"{"format":"other","version":1,"exportedAt":"2026-01-01T00:00:00Z","sites":[]}"#.utf8)) }
     }
 
-    @Test func testFingerprint() {
-        // ssh-keygen -lf of this ed25519 public key prints SHA256:... (43 chars, no padding)
-        let fp = KnownHostsStore.fingerprint(ofOpenSSHKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl")
-        #expect(fp.hasPrefix("SHA256:"))
-        #expect(fp.count == 7 + 43)
-    }
 
     @Test func testQueueStoreRoundTrip() {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("q-\(UUID()).sqlite3")

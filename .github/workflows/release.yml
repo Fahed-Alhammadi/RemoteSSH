@@ -89,6 +89,8 @@ jobs:
           echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
       # SwiftTerm compiles a Metal shader; Xcode 26+ ships the Metal Toolchain as a separate download.
       - run: xcrun metal --version >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
+      # Unit tests (the live server tests skip themselves without RSSH_*) before anything is signed.
+      - run: swift test
       - name: Build, sign and notarize
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}

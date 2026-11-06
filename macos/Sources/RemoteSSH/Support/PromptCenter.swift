@@ -5,7 +5,7 @@ import Observation
 /// Modal questions raised by the engine or the queue, answered by sheets in the UI.
 enum PromptKind: Identifiable {
     case hostKey(host: String, port: Int, keyType: String, fingerprint: String, changed: Bool)
-    case certificate(host: String, port: Int, reason: String)
+    case certificate(host: String, port: Int, certificate: CertificatePin, reason: String, changed: Bool)
     case password(prompt: String)
     case overwrite(file: String, source: FileInfo, target: FileInfo, direction: TransferDirection)
     case text(title: String, message: String, initial: String, icon: String)
@@ -19,7 +19,7 @@ enum PromptKind: Identifiable {
     var id: String {
         switch self {
         case .hostKey(let h, let p, _, _, _): return "hostkey-\(h):\(p)"
-        case .certificate(let h, let p, _): return "cert-\(h):\(p)"
+        case .certificate(let h, let p, let c, _, _): return "cert-\(h):\(p)-\(c.publicKeySHA256)"
         case .password(let p): return "pw-\(p)"
         case .overwrite(let f, _, _, _): return "ow-\(f)"
         case .text(let t, _, _, _): return "text-\(t)"
@@ -29,6 +29,7 @@ enum PromptKind: Identifiable {
 
 enum PromptAnswer {
     case bool(Bool)
+    case trust(CertificateTrust)
     case text(String?)
     case overwrite(OverwriteAction, applyToAll: Bool)
 }
@@ -70,9 +71,9 @@ final class PromptCenter: SessionPrompter {
         return false
     }
 
-    nonisolated func confirmCertificate(host: String, port: Int, reason: String) async -> Bool {
-        if case .bool(let ok) = await ask(.certificate(host: host, port: port, reason: reason)) { return ok }
-        return false
+    nonisolated func confirmCertificate(host: String, port: Int, certificate: CertificatePin, reason: String, changed: Bool) async -> CertificateTrust {
+        if case .trust(let answer) = await ask(.certificate(host: host, port: port, certificate: certificate, reason: reason, changed: changed)) { return answer }
+        return .reject
     }
 
     nonisolated func requestPassword(prompt: String) async -> String? {

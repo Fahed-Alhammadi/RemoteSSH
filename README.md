@@ -45,7 +45,7 @@ Every [release](https://github.com/Fahed-Alhammadi/RemoteSSH/releases/latest) in
 | Windows | Windows 10 or 11 | `RemoteSSH-x.y.z-win-x64.exe` or `-win-arm64.exe` (installer), or `RemoteSSH-x.y.z-portable.exe` (x64) |
 | Linux | x64 or Arm64 | `.AppImage`, `.deb` for Debian and Ubuntu, or `.tar.gz` |
 
-The macOS app is signed with a Developer ID and notarized by Apple, so it opens without a warning. The Windows builds are not code-signed yet: SmartScreen warns the first time, so choose *More info → Run anyway*.
+The macOS app is signed with a Developer ID and notarized by Apple, so it opens without a warning. The Windows builds are not code-signed, so Windows lists the publisher as *Unknown publisher* and SmartScreen may show *Windows protected your PC* the first time. Choose *More info → Run anyway*. Every release file is built from this repository by GitHub Actions, and the release page lists each file's SHA-256 checksum if you want to compare it with your download.
 
 **Updates:** the apps look for a new release at startup (you can turn this off in Settings) or when you choose *Check for Updates…*, and install it when you agree. The Windows portable `.exe` and the Linux `.tar.gz` open the release page instead.
 
@@ -56,7 +56,7 @@ The macOS app is signed with a Developer ID and notarized by Apple, so it opens 
 | **Connect** | Type an address such as `sftp://user@host:port/path` and press Connect, or save servers in the Site Manager with folders, logon types (normal, anonymous, ask for password, key file) and default folders. Saved sites are listed in a sidebar; one click connects. |
 | **Browse** | Sortable columns, a filter, file-type icons, hidden files, directory comparison, synchronized browsing, and drag and drop between the panes and from your file manager. |
 | **Files** | Create, rename, delete (recursively) and change permissions. View/Edit opens a remote file in your editor and uploads it again when you save. |
-| **Transfer queue** | Parallel transfers, queued/failed/done tabs, automatic retries, resume, a choice of what to do when a file already exists, and speed limits. The queue is kept across restarts. |
+| **Transfer queue** | Parallel transfers, queued/failed/done tabs, automatic retries for dropped connections, resume, a choice of what to do when a file already exists, and speed limits. Unfinished transfers are kept across restarts, ready to retry. |
 | **SSH terminal** | For SFTP sites, the Terminal tab opens a shell on its own connection, in the folder you're viewing. Toggle it with Ctrl+`, or use *Open Terminal Here* on a remote folder. On Windows and Linux, copy and paste with Ctrl+Shift+C / Ctrl+Shift+V. |
 | **Workspace** | The activity log, transfer queue and terminal share one resizable panel below the panes. It can be collapsed, and the terminal maximized. |
 | **Appearance** | Light, dark, or follow the system. |
@@ -65,25 +65,17 @@ The macOS app is signed with a Developer ID and notarized by Apple, so it opens 
 ## Security
 
 - **SFTP host keys** are remembered after you accept them (shown as a SHA-256 fingerprint), and you are warned if a server's key changes.
-- **FTPS certificates** are checked before any password is sent. If one can't be verified, you're told why and decide whether to connect.
+- **FTPS certificates** are checked before any password is sent. If one can't be verified, you're told why and decide whether to connect. *Always Trust* trusts only that certificate (by its SHA-256 fingerprint); if the server later presents a different one, you are warned that it changed.
+- **No silent downgrade.** With *TLS if available*, once a server has used TLS, RemoteSSH refuses to fall back to plain FTP for it, also after a restart.
 - **Passwords** are saved in the macOS Keychain, Windows DPAPI, or the Secret Service or KWallet on Linux. Without a keyring, RemoteSSH asks when you connect instead of storing them in plain text.
-- **Downloads** can't write outside the folder you chose, and View/Edit shows scripts and programs in their folder instead of opening them.
+- **Downloads** can't write outside the folder you chose, and View/Edit shows scripts and programs in their folder instead of opening them. Downloaded files are marked as coming from the internet (quarantine on macOS, Mark-of-the-Web on Windows), so Gatekeeper and SmartScreen check them.
+- **Terminal.** A folder name with control characters is never typed into the shell, so a hostile file name can't run commands. On macOS, links in the terminal open only after you confirm the real address.
+- **Imports** never carry certificate trust from another computer, and sites that use plain FTP are pointed out.
 - **Updates** to the released Mac app are installed only if they are signed by the same developer.
-
-## Code signing policy
-
-Free code signing for Windows provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
-
-- **Committers and reviewers:** [Fahed Alhammadi](https://github.com/Fahed-Alhammadi)
-- **Approvers:** [Fahed Alhammadi](https://github.com/Fahed-Alhammadi)
-
-Only files built from this repository by GitHub Actions are signed; nothing built on a personal computer is. The macOS app is signed separately with an Apple Developer ID and notarized by Apple.
-
-**Privacy:** RemoteSSH only connects to the servers you choose. The one other connection is the check for a new release on GitHub at startup, which you can turn off in Settings. It does not collect or send any other information.
 
 ## Where data is stored
 
-| | Sites, known hosts, queue | Settings | Passwords |
+| | Sites, known hosts, trusted certificates, queue | Settings | Passwords |
 | --- | --- | --- | --- |
 | macOS | `~/Library/Application Support/RemoteSSH/` | macOS preferences (`app.remotessh.RemoteSSH`) | Keychain (service `RemoteSSH`) |
 | Windows | `%APPDATA%\RemoteSSH\` | same folder | `secrets.json`, encrypted with DPAPI |

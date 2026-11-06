@@ -24,6 +24,22 @@ type SortKey = 'name' | 'size' | 'type' | 'modified' | 'permissions' | 'owner'
 /** Row height in px; must match `.row` in styles.css. */
 const ROW = 28
 export const DRAG_TYPE = 'application/x-remotessh'
+
+/**
+ * The payload of the drag this window started. Chromium carries custom drag types between apps, so a web
+ * page could forge a DRAG_TYPE drag (e.g. "upload ~/.ssh/id_ed25519"); only our own drag is accepted.
+ */
+let activeDrag: string | null = null
+
+export function ownDragPayload(data: DataTransfer): DragPayload | null {
+  const raw = data.getData(DRAG_TYPE)
+  if (!raw || raw !== activeDrag) return null
+  try {
+    return JSON.parse(raw) as DragPayload
+  } catch {
+    return null
+  }
+}
 /**
  * Marks which pane a drag came from. Drag data can only be read on drop, but the list of types is readable
  * while dragging, so drop targets use this to accept drags from the other side only.
@@ -221,7 +237,8 @@ export function FilePane(props: {
     if (!selection.has(entry.name)) onSelection(new Set([entry.name]))
     collapseTo.current = null
     const payload: DragPayload = { side: props.side, dir: props.path, entries: dragged }
-    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(payload))
+    activeDrag = JSON.stringify(payload)
+    e.dataTransfer.setData(DRAG_TYPE, activeDrag)
     e.dataTransfer.setData(dragSideType(props.side), '1')
     e.dataTransfer.effectAllowed = 'copy'
   }
@@ -241,10 +258,9 @@ export function FilePane(props: {
     setDropTarget(null)
     if (!accepts(e)) return
     const targetDir = dropDirAt(e) || null
-    const raw = e.dataTransfer.getData(DRAG_TYPE)
-    if (raw) {
-      const payload = JSON.parse(raw) as DragPayload
-      if (payload.side !== props.side) props.onDrop(payload, targetDir)
+    if (e.dataTransfer.types.includes(DRAG_TYPE)) {
+      const payload = ownDragPayload(e.dataTransfer)
+      if (payload && payload.side !== props.side) props.onDrop(payload, targetDir)
       return
     }
     const osPaths = [...e.dataTransfer.files].map(props.pathForFile).filter(Boolean)
@@ -352,6 +368,7 @@ export function FilePane(props: {
                   className={`row${isSelected ? ' selected' : ''}${mark ? ` cmp-${mark}` : ''}${dropTarget === entry.name ? ' drop' : ''}`}
                   draggable
                   onDragStart={(e) => dragStart(e, entry)}
+                  onDragEnd={() => (activeDrag = null)}
                   onMouseDown={(e) => mouseDown(e, index)}
                   onClick={(e) => rowClick(e, entry.name)}
                   onDoubleClick={() => props.onOpen(entry)}

@@ -257,7 +257,7 @@ export function SiteManager(props: {
                   <span className="form-label">Certificate</span>
                   <label className="check">
                     <input type="checkbox" checked={site.trustInvalidCertificate} onChange={(e) => update({ trustInvalidCertificate: e.target.checked })} />
-                    Trust this server’s certificate even if it cannot be verified
+                    Trust the certificate I accepted for this server, even if it cannot be verified
                   </label>
                 </>)}
               </div>

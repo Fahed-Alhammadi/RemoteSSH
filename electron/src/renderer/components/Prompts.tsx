@@ -39,10 +39,13 @@ export function PromptDialog({ request, icon, done }: { request: PromptRequest; 
     case 'certificate':
       return (
         <TrustPrompt
-          title="Unknown certificate"
-          warning={false}
+          title={request.changed ? 'Certificate changed' : 'Unknown certificate'}
+          warning={!!request.changed}
+          replaceLabel="Trust New Certificate"
           done={done}
-          message={`The server’s certificate could not be verified: ${request.reason}`}
+          message={request.changed
+            ? `The server sent a different certificate than the one you trusted before. This can mean someone is intercepting the connection. Only continue if you know the certificate was replaced. (${request.reason})`
+            : `The server’s certificate could not be verified: ${request.reason}`}
           details={[
             ['Host', `${request.host}:${request.port}`],
             ['Subject', request.subject],
@@ -91,14 +94,14 @@ function TextPrompt({ request, icon, done }: {
   )
 }
 
-function TrustPrompt(props: { title: string; message: string; details: [string, string][]; warning: boolean; done: (v: TrustAnswer) => void }) {
+function TrustPrompt(props: { title: string; message: string; details: [string, string][]; warning: boolean; replaceLabel?: string; done: (v: TrustAnswer) => void }) {
   return (
     <Modal title={props.title} icon={props.warning ? ShieldAlert : ShieldQuestion} onClose={() => props.done('reject')} width={560}
       footer={<>
         <button type="button" onClick={() => props.done('reject')} autoFocus>Cancel</button>
         <button type="button" onClick={() => props.done('once')}>Trust Once</button>
         <button type="button" className={props.warning ? 'danger' : 'primary'} onClick={() => props.done('always')}>
-          {props.warning ? 'Trust New Key' : 'Always Trust'}
+          {props.warning ? (props.replaceLabel ?? 'Trust New Key') : 'Always Trust'}
         </button>
       </>}>
       <p className={props.warning ? 'warning' : undefined}>{props.message}</p>
@@ -206,6 +209,7 @@ function ChmodPrompt({ request, done }: { request: Extract<PromptRequest, { kind
           }} />
       </label>
       <label className="check"><input type="checkbox" checked={recursive} onChange={(e) => setRecursive(e.target.checked)} /> Apply to subdirectories and files</label>
+      {recursive && <p className="hint">Folders also get execute (open) permission wherever read is allowed, so they stay accessible.</p>}
     </Modal>
   )
 }

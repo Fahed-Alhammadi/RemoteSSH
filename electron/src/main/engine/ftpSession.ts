@@ -11,6 +11,8 @@ import {
   ask,
   CancelledError,
   Mutex,
+  PermanentError,
+  sessionError,
   SessionError,
   Throttle,
   type ProgressHandler,
@@ -27,6 +29,10 @@ export class FTPSession implements RemoteSession {
   onClose?: () => void
   private readonly client: Client
   private readonly mutex = new Mutex()
+  private keepAliveTimer: NodeJS.Timeout | null = null
+  private lastActivity = Date.now()
+  /** True while a keep-alive NOOP runs, so it stays out of the message log. */
+  private keepingAlive = false
 
   constructor(private readonly ctx: SessionContext) {
     this.site = ctx.site
@@ -34,6 +40,7 @@ export class FTPSession implements RemoteSession {
     const ftp = this.client.ftp
     ftp.verbose = true
     ftp.log = (message: string) => {
+      if (this.keepingAlive) return
       if (message.startsWith('> ')) ctx.log('command', message.slice(2))
       else if (message.startsWith('< ')) ctx.log('response', message.slice(2).trimEnd())
       else if (!message.startsWith('Trying ')) ctx.log('status', message)
@@ -60,7 +67,7 @@ export class FTPSession implements RemoteSession {
           } catch (e) {
             if (site.encryption === 'requireExplicit' || !(e instanceof FTPError)) throw e
             if (this.ctx.options.requireTLS) {
-              throw new SessionError('The server refused TLS although it used TLS before in this session; not continuing unencrypted.')
+              throw new SessionError('The server refused TLS although it used TLS before; not continuing unencrypted. Someone may be intercepting the connection.')
             }
             log('error', 'Server does not support FTP over TLS; continuing unencrypted. Your password is sent in plain text.')
           }
@@ -70,6 +77,7 @@ export class FTPSession implements RemoteSession {
       await this.client.login(effectiveUser(site) || 'anonymous', site.logonType === 'anonymous' ? 'anonymous@' : this.ctx.password)
       await this.client.useDefaultSettings()
       this.client.ftp.socket.once('close', () => this.markClosed())
+      if (this.ctx.options.keepAlive) this.startKeepAlive()
     } catch (e) {
       this.client.close()
       this.closed = true
@@ -77,27 +85,43 @@ export class FTPSession implements RemoteSession {
     }
   }
 
-  /** Asks about certificates Node could not verify, before any credentials are sent. */
+  /**
+   * Asks about certificates Node could not verify, before any credentials are sent. An accepted certificate
+   * is pinned by fingerprint: a different one later (e.g. an attacker's) is asked about again, as "changed".
+   */
   private async verifyCertificate(): Promise<void> {
     const socket = this.client.ftp.socket as TLSSocket
     const cert = socket.getPeerCertificate()
-    this.pinDataCertificate(cert.fingerprint256)
-    if (socket.authorized || this.site.trustInvalidCertificate) return
+    const fingerprint = cert.fingerprint256 ?? ''
+    this.pinDataCertificate(fingerprint)
+    if (socket.authorized) return
+    const { site, certificates, log } = this.ctx
+    const port = effectivePort(site)
+    let status = certificates.check(site.host, port, fingerprint, site.trustInvalidCertificate)
+    if (status === 'unknown' && site.trustInvalidCertificate && fingerprint && !certificates.hasPin(site.host, port)) {
+      // Older versions trusted any certificate for such a site; from now on only this one is.
+      certificates.trust(site.host, port, fingerprint, true)
+      log('status', `Pinned the trusted certificate for ${site.host}:${port} (${fingerprint}).`)
+      status = 'trusted'
+    }
+    if (status === 'trusted') return
     const name = (o: Record<string, string | string[]> | undefined) =>
       o ? Object.entries(o).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`).join(', ') : ''
     const answer = await ask(this.ctx.prompter, {
       kind: 'certificate',
-      host: this.site.host,
-      port: effectivePort(this.site),
+      host: site.host,
+      port,
       subject: name(cert.subject as unknown as Record<string, string>),
       issuer: name(cert.issuer as unknown as Record<string, string>),
       validFrom: cert.valid_from ?? '',
       validTo: cert.valid_to ?? '',
-      fingerprint: cert.fingerprint256 ?? '',
+      fingerprint,
       reason: String(socket.authorizationError ?? 'The certificate could not be verified.'),
+      changed: status === 'changed',
     })
-    if (answer === 'reject') throw new CancelledError('The server certificate was not trusted.')
-    if (answer === 'always') this.ctx.trustCertificate({ ...this.site, trustInvalidCertificate: true })
+    if (answer === 'reject' || !fingerprint) throw new CancelledError('The server certificate was not trusted.')
+    certificates.trust(site.host, port, fingerprint, answer === 'always')
+    if (answer === 'always' && !site.trustInvalidCertificate) this.ctx.trustCertificate({ ...site, trustInvalidCertificate: true })
   }
 
   /**
@@ -127,12 +151,34 @@ export class FTPSession implements RemoteSession {
     })
   }
 
+  /** Sends NOOP after 30 s without a command, so servers and NAT routers don't drop an idle connection. */
+  private startKeepAlive(): void {
+    this.keepAliveTimer = setInterval(() => {
+      if (this.closed || Date.now() - this.lastActivity < 30_000) return
+      void this.mutex
+        .run(async () => {
+          if (this.closed) return
+          this.keepingAlive = true
+          try {
+            await this.client.send('NOOP')
+          } finally {
+            this.keepingAlive = false
+            this.lastActivity = Date.now()
+          }
+        })
+        .catch(() => undefined) // a dead connection is reported by the socket's 'close'
+    }, 10_000)
+    this.keepAliveTimer.unref()
+  }
+
   close(): void {
     this.client.close()
     this.markClosed()
   }
 
   private markClosed(): void {
+    if (this.keepAliveTimer) clearInterval(this.keepAliveTimer)
+    this.keepAliveTimer = null
     if (this.closed) return
     this.closed = true
     this.onClose?.()
@@ -140,10 +186,11 @@ export class FTPSession implements RemoteSession {
 
   private wrap(e: unknown): Error {
     if (e instanceof SessionError) return e
-    if (e instanceof FTPError) return new SessionError(`${e.code} ${e.message}`)
+    // 5xx replies are permanent (550 permission denied, 553 bad name, 530 login incorrect); 4xx are temporary.
+    if (e instanceof FTPError) return e.code >= 500 ? new PermanentError(`${e.code} ${e.message}`) : new SessionError(`${e.code} ${e.message}`)
     const message = e instanceof Error ? e.message : String(e)
     if (this.closed && /closed|ECONNRESET|aborted/i.test(message)) return new SessionError('Connection closed.')
-    return new SessionError(message)
+    return sessionError(e)
   }
 
   private run<T>(task: () => Promise<T>): Promise<T> {
@@ -153,6 +200,8 @@ export class FTPSession implements RemoteSession {
         return await task()
       } catch (e) {
         throw this.wrap(e)
+      } finally {
+        this.lastActivity = Date.now()
       }
     })
   }
@@ -239,8 +288,15 @@ export class FTPSession implements RemoteSession {
       // pipeline (not pipe) forwards a read error (file deleted, no access) to the throttle, which basic-ftp
       // listens to, and closes the file when the upload fails; with pipe() the error event had no listener.
       const source: Readable = limit > 0 ? pipe(file, new Throttle(limit), () => undefined) : file
-      if (offset > 0) await this.client.appendFrom(source, remote)
-      else await this.client.uploadFrom(source, remote)
+      try {
+        if (offset > 0) await this.client.appendFrom(source, remote)
+        else await this.client.uploadFrom(source, remote)
+      } finally {
+        // basic-ftp only consumes (and closes) the source once the server accepted STOR; a refusal
+        // (553, quota, PASV failure) would otherwise leak the open file.
+        file.destroy()
+        if (source !== file) source.destroy()
+      }
     })
   }
 
