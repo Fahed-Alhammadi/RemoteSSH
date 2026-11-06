@@ -6,8 +6,8 @@ import { readJSON, writeJSON } from './jsonFile'
 /** OS-backed encryption (Electron `safeStorage`: DPAPI on Windows, Secret Service/KWallet on Linux). */
 export interface SecretCipher {
   available(): boolean
-  encrypt(plain: string): string
-  decrypt(encoded: string): string
+  encrypt(plain: string): Promise<string>
+  decrypt(encoded: string): Promise<string>
 }
 
 /**
@@ -39,17 +39,24 @@ export class SiteStore {
     }
   }
 
-  password(id: string): string | null {
+  async password(id: string): Promise<string | null> {
     const encoded = this.secrets[id]
     if (!encoded || !this.cipher.available()) return null
     try {
-      return this.cipher.decrypt(encoded)
+      return await this.cipher.decrypt(encoded)
     } catch {
       return null
     }
   }
 
-  save(update: SitesUpdate): void {
+  async save(update: SitesUpdate): Promise<void> {
+    // Encrypt first, so the files and `secrets` are then updated in one synchronous step.
+    const encrypted: Record<string, string> = {}
+    if (this.cipher.available()) {
+      for (const [id, pw] of Object.entries(update.passwords)) {
+        if (pw) encrypted[id.toUpperCase()] = await this.cipher.encrypt(pw)
+      }
+    }
     const sites = update.sites.map(normalizeSite)
     writeJSON(this.sitesFile, sites)
     const ids = new Set(sites.map((s) => s.id))
@@ -67,8 +74,8 @@ export class SiteStore {
           delete this.secrets[key]
           changed = true
         }
-      } else if (this.cipher.available()) {
-        this.secrets[key] = this.cipher.encrypt(pw)
+      } else if (key in encrypted) {
+        this.secrets[key] = encrypted[key]
         changed = true
       }
     }

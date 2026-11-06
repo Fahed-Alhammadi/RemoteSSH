@@ -19,8 +19,8 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'remotessh-test-'))
 /** Reversible stand-in for the OS keyring. */
 const fakeCipher: SecretCipher = {
   available: () => true,
-  encrypt: (s) => Buffer.from(s).toString('base64').split('').reverse().join(''),
-  decrypt: (s) => Buffer.from(s.split('').reverse().join(''), 'base64').toString(),
+  encrypt: async (s) => Buffer.from(s).toString('base64').split('').reverse().join(''),
+  decrypt: async (s) => Buffer.from(s.split('').reverse().join(''), 'base64').toString(),
 }
 
 describe('quickconnect', () => {
@@ -116,23 +116,23 @@ describe('site archive (.remotessh)', () => {
 })
 
 describe('stores', () => {
-  it('keeps passwords encrypted and out of sites.json', () => {
+  it('keeps passwords encrypted and out of sites.json', async () => {
     const dir = tmp()
     const store = new SiteStore(dir, fakeCipher)
     const site = makeSite({ host: 'h' })
-    store.save({ sites: [site], passwords: { [site.id]: 'hunter2' } })
+    await store.save({ sites: [site], passwords: { [site.id]: 'hunter2' } })
     expect(fs.readFileSync(path.join(dir, 'sites.json'), 'utf8')).not.toContain('hunter2')
     expect(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8')).not.toContain('hunter2')
-    expect(new SiteStore(dir, fakeCipher).password(site.id)).toBe('hunter2')
+    expect(await new SiteStore(dir, fakeCipher).password(site.id)).toBe('hunter2')
     if (process.platform !== 'win32') expect(fs.statSync(path.join(dir, 'secrets.json')).mode & 0o777).toBe(0o600)
-    store.save({ sites: [], passwords: {} })
-    expect(new SiteStore(dir, fakeCipher).password(site.id)).toBeNull()
+    await store.save({ sites: [], passwords: {} })
+    expect(await new SiteStore(dir, fakeCipher).password(site.id)).toBeNull()
   })
-  it('never writes passwords without OS encryption', () => {
+  it('never writes passwords without OS encryption', async () => {
     const dir = tmp()
     const store = new SiteStore(dir, { ...fakeCipher, available: () => false })
     const site = makeSite({ host: 'h' })
-    store.save({ sites: [site], passwords: { [site.id]: 'hunter2' } })
+    await store.save({ sites: [site], passwords: { [site.id]: 'hunter2' } })
     expect(fs.existsSync(path.join(dir, 'secrets.json'))).toBe(false)
     expect(store.state().canStorePasswords).toBe(false)
   })

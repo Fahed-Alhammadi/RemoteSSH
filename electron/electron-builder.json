@@ -11,6 +11,13 @@
   ],
   "asar": true,
   "npmRebuild": false,
+  "electronFuses": {
+    "runAsNode": false,
+    "enableNodeOptionsEnvironmentVariable": false,
+    "enableNodeCliInspectArguments": false,
+    "enableEmbeddedAsarIntegrityValidation": true,
+    "onlyLoadAppFromAsar": true
+  },
   "fileAssociations": [
     {
       "ext": "remotessh",

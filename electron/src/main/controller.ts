@@ -204,8 +204,8 @@ export class Controller implements Prompter {
     return this.site
   }
 
-  private saveSites(update: SitesUpdate): SitesState {
-    this.sites.save(update)
+  private async saveSites(update: SitesUpdate): Promise<SitesState> {
+    await this.sites.save(update)
     for (const id of Object.keys(update.passwords)) this.sessionPasswords.delete(id)
     this.transfers.closeIdle()
     return this.sites.state()
@@ -222,7 +222,7 @@ export class Controller implements Prompter {
     if (result.canceled || !result.filePaths[0]) return null
     const { sites, passwords } = decodeArchive(await fs.promises.readFile(result.filePaths[0], 'utf8'))
     const state = this.sites.state()
-    this.sites.save({ sites: [...state.sites, ...sites], passwords })
+    await this.sites.save({ sites: [...state.sites, ...sites], passwords })
     const stored = Object.keys(passwords).length
     this.log('status', `Imported ${sites.length} site${sites.length === 1 ? '' : 's'}${stored && !state.canStorePasswords ? ' (passwords not saved: no secure storage available)' : ''}.`)
     return this.sites.state()
@@ -257,7 +257,7 @@ export class Controller implements Prompter {
     if (includePasswords) {
       passwords = {}
       for (const id of state.withPassword) {
-        const pw = this.sites.password(id)
+        const pw = await this.sites.password(id)
         if (pw) passwords[id] = pw
       }
     }
@@ -283,7 +283,7 @@ export class Controller implements Prompter {
     const cached = this.sessionPasswords.get(site.id)
     if (cached != null) return cached
     if (site.logonType === 'normal') {
-      const stored = this.sites.password(site.id)
+      const stored = await this.sites.password(site.id)
       if (stored != null) return stored
       // Without an OS keyring nothing was saved, so ask instead of sending an empty password.
       if (this.transientSites.has(site.id) || this.sites.state().canStorePasswords) return ''
