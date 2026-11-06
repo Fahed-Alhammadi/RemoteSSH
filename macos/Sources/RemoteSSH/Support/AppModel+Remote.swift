@@ -23,7 +23,7 @@ extension AppModel {
     }
 
     private func connectAsync(_ site: Site, initialPath: String?) async {
-        await disconnect()
+        disconnect()
         connectGeneration += 1
         let generation = connectGeneration
         var pass = password(for: site) ?? ""
@@ -40,7 +40,7 @@ extension AppModel {
         do {
             try await session.connect()
             // Another site was chosen (or Disconnect) meanwhile: don't let this session replace it.
-            guard generation == connectGeneration else { await session.disconnect(); return }
+            guard generation == connectGeneration else { Self.close(session); return }
             // Remember a typed password only once it worked, so a typo is asked for again next time.
             if let prompted { transientPasswords[site.id] = prompted }
             noteConnected(session)
@@ -56,7 +56,7 @@ extension AppModel {
         } catch {
             guard generation == connectGeneration else { return }
             // Connected, but the start folder failed: close the session instead of leaving it open.
-            if self.session != nil { await disconnect() }
+            if self.session != nil { disconnect() }
             connection = .disconnected
             self.error(error.localizedDescription)
             status("Could not connect to server")
@@ -65,33 +65,44 @@ extension AppModel {
 
     func makeSession(for site: Site, password: String, log: LogSink? = nil) -> RemoteSession {
         var site = site
-        if site.serverProtocol == .ftp, site.encryption == .explicitIfAvailable, tlsSites.contains(site.id) {
+        if site.serverProtocol == .ftp, site.encryption == .explicitIfAvailable, tlsHosts.contains(site.serverKey) {
             site.encryption = .requireExplicit
         }
         return SessionFactory.make(
             site: site,
-            credentials: SessionCredentials(password: password),
+            credentials: SessionCredentials(password: password, keyPassphrase: transientPassphrases[site.id]),
             options: settings.sessionOptions,
             prompter: prompts,
             hostKeys: knownHosts,
+            certificatePins: certificatePins,
             log: log ?? makeLogSink()
         )
     }
 
-    /// Remembers that FTP TLS worked for a site, so `makeSession` refuses a later downgrade.
+    /// After a successful connect: remembers that FTP TLS worked for the server, so `makeSession` refuses a
+    /// later downgrade, and keeps the key passphrase for the site's other connections this run.
     func noteConnected(_ session: RemoteSession) {
         let site = session.site
-        if site.serverProtocol == .ftp, session.isEncrypted { tlsSites.insert(site.id) }
+        if site.serverProtocol == .ftp, session.isEncrypted, site.encryption != .requireImplicit {
+            tlsHosts.insert(site.serverKey)
+        }
+        if let passphrase = (session as? SFTPSession)?.keyPassphrase { transientPassphrases[site.id] = passphrase }
     }
 
-    func disconnect() async {
+    func disconnect() {
         connectGeneration += 1
         let session = self.session
         self.session = nil
-        if let session { await session.disconnect() }
+        if let session { Self.close(session) }
+        transfers.closeIdle()
         connection = .disconnected
         remoteEntries = []
         remotePath = ""
+    }
+
+    /// Closes a session in the background: a slow server must not hold up the main actor.
+    nonisolated static func close(_ session: RemoteSession) {
+        Task.detached { await session.disconnect() }
     }
 
     func reconnect() {
@@ -103,18 +114,21 @@ extension AppModel {
 
     func navigateRemote(to path: String) async {
         guard let session else { return }
+        remoteNavigation += 1
+        let generation = remoteNavigation
         remoteBusy = true
-        defer { remoteBusy = false }
+        defer { if generation == remoteNavigation { remoteBusy = false } }
         do {
             let entries = try await session.list(path)
-            // Disconnected or connected elsewhere while listing: don't show the old server's files.
-            guard self.session === session else { return }
+            // Disconnected, connected elsewhere or navigated on while listing: a newer listing wins.
+            guard self.session === session, generation == remoteNavigation else { return }
             if synchronizedBrowsing, let base = syncBase, let local = RemotePath.rebase(path, from: base.remote, to: base.local) {
                 if FileManager.default.fileExists(atPath: local) { navigateLocal(to: local, sync: false) }
             }
             remotePath = path
             remoteEntries = entries
         } catch {
+            guard self.session === session else { return }
             self.error(error.localizedDescription)
             if case RemoteSSHError.connectionFailed = error { connection = .disconnected }
         }
@@ -132,13 +146,14 @@ extension AppModel {
 
     // MARK: Operations
 
-    /// Runs a remote operation in the current directory and refreshes the listing afterwards.
+    /// Runs a remote operation in the current directory and refreshes the listing afterwards, if the pane
+    /// still shows that folder of the same connection.
     private func remoteOperation(_ body: @escaping (RemoteSession, String) async throws -> Void) {
         guard let session else { return }
         let base = remotePath
         Task {
             do { try await body(session, base) } catch { self.error(error.localizedDescription) }
-            await navigateRemote(to: base)
+            if self.session === session, remotePath == base { await navigateRemote(to: base) }
         }
     }
 
@@ -146,10 +161,11 @@ extension AppModel {
         Task {
             guard let name = await prompts.requestText(title: "Create Directory", message: "Name of the new directory:", initial: "New directory", icon: "folder.badge.plus"),
                   !name.isEmpty, let session else { return }
-            let path = RemotePath.join(remotePath, name)
+            let base = remotePath
+            let path = RemotePath.join(base, name)
             do {
                 try await session.makeDirectory(path)
-                await navigateRemote(to: enter ? path : remotePath)
+                if self.session === session, enter || remotePath == base { await navigateRemote(to: enter ? path : base) }
             } catch { self.error(error.localizedDescription) }
         }
     }

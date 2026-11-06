@@ -47,6 +47,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>NSHighResolutionCapable</key><true/>
+  <!-- Files the app downloads get the quarantine flag, so Gatekeeper checks them before they run. -->
+  <key>LSFileQuarantineEnabled</key><true/>
   <key>NSHumanReadableCopyright</key><string>Copyright (c) 2026 Fahed Alhammadi</string>
 </dict>
 </plist>

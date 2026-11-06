@@ -49,6 +49,10 @@ export const Permissions = {
   octal(bits: number): string {
     return (bits & 0o777).toString(8).padStart(3, '0')
   },
+  /** A folder's mode in a recursive chmod: execute (open) wherever read is allowed, so 644 becomes 755. */
+  folderMode(mode: number): number {
+    return mode | ((mode & 0o444) >> 2)
+  },
 }
 
 const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -97,4 +101,14 @@ export function compareVersions(a: string, b: string): number {
 /** Quotes a string as one POSIX shell word. */
 export function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+/**
+ * True when `s` holds C0/DEL/C1 control characters. A path typed into a shell must never contain them:
+ * the terminal's line editor acts on e.g. Ctrl-U or Ctrl-C before the shell sees the quotes, so a hostile
+ * folder name could erase the `cd` line and run a command of its own.
+ */
+export function hasControlChars(s: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  return /[\u0000-\u001f\u007f-\u009f]/.test(s)
 }

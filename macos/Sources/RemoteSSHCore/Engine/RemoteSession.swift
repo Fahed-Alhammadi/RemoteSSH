@@ -18,12 +18,22 @@ public struct LogLine: Identifiable, Sendable {
 
 public typealias LogSink = @Sendable (LogLine) -> Void
 
+/// The answer to a certificate prompt.
+public enum CertificateTrust: Sendable {
+    case reject
+    /// Trust this certificate's key until the app quits.
+    case once
+    /// Trust this certificate's key from now on (saved in `CertificatePinStore`).
+    case always
+}
+
 /// Interactive questions the engine can ask the UI.
 public protocol SessionPrompter: AnyObject, Sendable {
     /// Unknown or changed SSH host key. Return true to trust (and remember) it.
     func confirmHostKey(host: String, port: Int, keyType: String, fingerprint: String, changed: Bool) async -> Bool
-    /// TLS certificate failed verification. Return true to connect anyway (remembered for the site).
-    func confirmCertificate(host: String, port: Int, reason: String) async -> Bool
+    /// A TLS certificate that failed verification, or (`changed`) whose key differs from the one trusted
+    /// before. Whatever the answer, only this certificate's public key is accepted afterwards.
+    func confirmCertificate(host: String, port: Int, certificate: CertificatePin, reason: String, changed: Bool) async -> CertificateTrust
     /// Password for "Ask for password" sites or encrypted key files.
     func requestPassword(prompt: String) async -> String?
 }
@@ -106,11 +116,12 @@ public enum SessionFactory {
         options: SessionOptions,
         prompter: SessionPrompter?,
         hostKeys: KnownHostsStore,
+        certificatePins: CertificatePinStore = CertificatePinStore(url: nil),
         log: @escaping LogSink
     ) -> RemoteSession {
         switch site.serverProtocol {
         case .ftp:
-            return FTPSession(site: site, credentials: credentials, options: options, prompter: prompter, log: log)
+            return FTPSession(site: site, credentials: credentials, options: options, prompter: prompter, certificatePins: certificatePins, log: log)
         case .sftp:
             return SFTPSession(site: site, credentials: credentials, options: options, prompter: prompter, hostKeys: hostKeys, log: log)
         }

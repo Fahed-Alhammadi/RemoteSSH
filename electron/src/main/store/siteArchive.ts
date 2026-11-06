@@ -1,4 +1,4 @@
-import { newID, normalizeSite } from '../../shared/site'
+import { invalidSiteFields, newID, normalizeSite } from '../../shared/site'
 import type { Site } from '../../shared/types'
 
 /**
@@ -45,7 +45,16 @@ export function decodeArchive(text: string): { sites: Site[]; passwords: Record<
   const sites: Site[] = []
   const passwords: Record<string, string> = {}
   for (const raw of parsed.sites as Partial<Site>[]) {
+    // Like the Mac app, an unknown protocol or encryption is an error: guessing could turn
+    // "requireImplicit" into plain FTP that sends the password unencrypted.
+    const bad = invalidSiteFields(raw)
+    if (bad.length) {
+      const name = raw && typeof raw === 'object' && typeof raw.name === 'string' ? raw.name : 'a site'
+      throw new ArchiveError(`This file can't be imported: ${name} has an invalid ${bad.join(', ')}.`)
+    }
     const site = normalizeSite(raw)
+    // Certificate trust is a decision made on this computer; an imported file can't make it.
+    site.trustInvalidCertificate = false
     const pw = oldPasswords[site.id]
     site.id = newID()
     if (pw) passwords[site.id] = pw

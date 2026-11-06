@@ -25,6 +25,9 @@ final class AppModel {
     // Persistence
     @ObservationIgnored let siteStore = SiteStore()
     @ObservationIgnored let knownHosts = KnownHostsStore()
+    /// Trusted FTPS certificates: saved ("Always Trust") and accepted for this run ("Connect Once"), shared
+    /// by the browse, transfer and terminal connections.
+    @ObservationIgnored let certificatePins = CertificatePinStore()
 
     var settings = AppSettings.load() {
         didSet {
@@ -38,9 +41,15 @@ final class AppModel {
     /// Quickconnect sites live only in memory.
     var transientSites: [UUID: Site] = [:]
     @ObservationIgnored var transientPasswords: [UUID: String] = [:]
-    /// FTP sites ("TLS if available") where TLS worked this run: their later connections, including
-    /// pooled transfer and terminal sessions, require TLS so they can't be downgraded to plain FTP.
-    @ObservationIgnored var tlsSites: Set<UUID> = []
+    /// Key file passphrases that worked this run, by site, so the site's other connections don't ask again.
+    @ObservationIgnored var transientPassphrases: [UUID: String] = [:]
+    /// FTP servers (lowercase "host:port") where TLS worked: with "TLS if available", their later connections,
+    /// including pooled transfer and terminal sessions, require TLS so they can't be downgraded to plain FTP.
+    /// Kept in UserDefaults (outside `AppSettings`, whose synthesized Codable would drop old settings on a new key).
+    @ObservationIgnored var tlsHosts = Set(UserDefaults.standard.stringArray(forKey: AppModel.tlsHostsKey) ?? []) {
+        didSet { UserDefaults.standard.set(tlsHosts.sorted(), forKey: Self.tlsHostsKey) }
+    }
+    static let tlsHostsKey = "RemoteSSH.tlsHosts"
 
     let prompts = PromptCenter()
     private(set) var log: [LogLine] = []
@@ -55,6 +64,8 @@ final class AppModel {
     var remotePath = ""
     var remoteEntries: [FileEntry] = []
     var remoteBusy = false
+    /// Bumped by every remote listing request, so a slower, older listing never replaces a newer one.
+    @ObservationIgnored var remoteNavigation = 0
 
     // Local browser
     var localPath = FileManager.default.homeDirectoryForCurrentUser.path
@@ -89,9 +100,26 @@ final class AppModel {
     @ObservationIgnored lazy var editWatcher = EditWatcher(model: self)
 
     init() {
-        sites = siteStore.load()
+        let loaded = siteStore.load()
+        sites = loaded.sites
         compareDirectories = settings.showDirectoryComparison
         refreshLocal()
+        let problems = [loaded.problem, knownHosts.loadProblem, certificatePins.loadProblem].compactMap { $0 }
+        if !problems.isEmpty { Task { @MainActor in self.report(problems) } }
+    }
+
+    /// Tells the user that saved data could not be read (a copy was kept), then lets the stores write again.
+    private func report(_ problems: [StoreLoadProblem]) {
+        for problem in problems { error(problem.localizedDescription) }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Some saved data could not be read"
+        alert.informativeText = problems.map(\.localizedDescription).joined(separator: "\n\n")
+            + "\n\nThe copies are in \(AppPaths.supportDirectory.path). RemoteSSH will save your changes from now on, replacing the unreadable files."
+        alert.runModal()
+        siteStore.allowSaving()
+        knownHosts.allowSaving()
+        certificatePins.allowSaving()
     }
 
     // MARK: Logging
@@ -172,8 +200,11 @@ final class AppModel {
             passwords = Dictionary(uniqueKeysWithValues: sites.compactMap { s in Keychain.password(for: s.id).map { (s.id, $0) } })
         }
         do {
-            try SiteArchive(sites: sites, passwords: passwords).encoded().write(to: url, options: .atomic)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            // Created owner-only from the start: it may hold passwords.
+            let data = try SiteArchive(sites: sites, passwords: passwords).encoded()
+            guard FileManager.default.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
+                throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
+            }
             status("Exported \(sites.count) sites to \(url.lastPathComponent)")
         } catch {
             self.error("Export failed: \(error.localizedDescription)")

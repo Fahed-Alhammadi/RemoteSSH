@@ -50,6 +50,66 @@ public enum LocalFileSystem {
     }
 }
 
+/// The local file a download writes to. A fresh download goes to a temporary sibling
+/// (`<name>.remotessh-part`) that replaces the target only once the transfer succeeded, so a failed or
+/// cancelled overwrite leaves the old file intact. A resumed download (offset > 0) appends to the target.
+final class DownloadTarget {
+    let handle: FileHandle
+    private let target: URL
+    private let temporary: URL?
+
+    static func partURL(for target: URL) -> URL {
+        target.deletingLastPathComponent().appendingPathComponent(target.lastPathComponent + ".remotessh-part")
+    }
+
+    init(_ target: URL, resumeFrom offset: Int64) throws {
+        let fm = FileManager.default
+        self.target = target
+        if offset > 0 {
+            temporary = nil
+            if !fm.fileExists(atPath: target.path) { fm.createFile(atPath: target.path, contents: nil) }
+            handle = try FileHandle(forWritingTo: target)
+            try handle.seek(toOffset: UInt64(offset))
+        } else {
+            let part = Self.partURL(for: target)
+            guard fm.createFile(atPath: part.path, contents: nil) else {
+                throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: part.path])
+            }
+            temporary = part
+            handle = try FileHandle(forWritingTo: part)
+        }
+    }
+
+    /// Closes the file and, for a fresh download, moves it over the target (atomic rename).
+    func commit() throws {
+        try handle.close()
+        guard let temporary else { return }
+        if rename(temporary.path, target.path) != 0 {
+            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+            try? FileManager.default.removeItem(at: temporary)
+            throw POSIXError(code)
+        }
+    }
+
+    /// Closes the file and deletes the temporary copy (the target is untouched).
+    func discard() {
+        try? handle.close()
+        if let temporary { try? FileManager.default.removeItem(at: temporary) }
+    }
+
+    /// Runs `body` with the open file, then commits on success or discards on any error.
+    static func write(to target: URL, resumeFrom offset: Int64, _ body: (DownloadTarget) async throws -> Void) async throws {
+        let file = try DownloadTarget(target, resumeFrom: offset)
+        do {
+            try await body(file)
+        } catch {
+            file.discard()
+            throw error
+        }
+        try file.commit()
+    }
+}
+
 /// Directory comparison (View → Directory comparison) by name, size and date.
 public enum DirectoryComparison {
     public enum State: Sendable { case same, onlyHere, newer, different }

@@ -22,7 +22,7 @@ export interface Site {
   defaultLocalDirectory: string
   defaultRemoteDirectory: string
   comments: string
-  /** Set after the user accepted an untrusted TLS certificate for this site. */
+  /** Trust the TLS certificate the user accepted for this site (pinned by fingerprint), even if it can't be verified. */
   trustInvalidCertificate: boolean
 }
 
@@ -153,6 +153,8 @@ export type PromptRequest =
       validTo: string
       fingerprint: string
       reason: string
+      /** A different certificate than the one accepted before. */
+      changed?: boolean
     }
   | {
       kind: 'overwrite'

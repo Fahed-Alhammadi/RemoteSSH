@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { FTPSession } from '../src/main/engine/ftpSession'
 import { CancelledError, type RemoteSession, type SessionContext } from '../src/main/engine/session'
 import { SFTPSession } from '../src/main/engine/sftpSession'
+import { CertificateStore } from '../src/main/store/certificates'
 import { KnownHostsStore } from '../src/main/store/knownHosts'
 import { QueueStore } from '../src/main/store/settingsStore'
 import { Terminals } from '../src/main/terminal'
@@ -34,6 +35,7 @@ function context(site: Site, password = '', asked: PromptRequest[] = []): Sessio
     log: () => undefined,
     trustCertificate: () => undefined,
     hostKeys: new KnownHostsStore(work),
+    certificates: new CertificateStore(work),
   }
 }
 
@@ -131,6 +133,38 @@ describe.skipIf(!env.RSSH_FTP_HOST)('FTP', () => {
     const abort = new AbortController()
     const run = s.upload(src, '/cancelled.bin', 0, abort.signal, (n) => n > 1_000_000 && abort.abort())
     await expect(run).rejects.toBeInstanceOf(CancelledError)
+    s.close()
+    const cleanup = new FTPSession(context(site({ encryption: 'plain' }), env.RSSH_FTP_PASS))
+    await cleanup.connect()
+    await cleanup.deleteFile('/cancelled.bin').catch(() => undefined)
+    cleanup.close()
+  })
+
+  it('pins an always-trusted certificate and asks again when it changes', async () => {
+    const certs = new CertificateStore(fs.mkdtempSync(path.join(work, 'certs-')))
+    const withAnswer = (answer: string, trusted: boolean, asked: PromptRequest[]) => {
+      const ctx = context(site({ encryption: 'requireExplicit', trustInvalidCertificate: trusted }), env.RSSH_FTP_PASS, asked)
+      ctx.certificates = certs
+      ctx.prompter = { ask: async (r) => (asked.push(r), answer) }
+      return new FTPSession(ctx)
+    }
+    const first: PromptRequest[] = []
+    const a = withAnswer('always', false, first)
+    await a.connect()
+    a.close()
+    expect(first.map((r) => r.kind)).toEqual(['certificate'])
+    const fp = (first[0] as Extract<PromptRequest, { kind: 'certificate' }>).fingerprint
+
+    const second: PromptRequest[] = []
+    const b = withAnswer('reject', true, second)
+    await b.connect() // pinned: no question
+    b.close()
+    expect(second).toEqual([])
+
+    certs.trust(env.RSSH_FTP_HOST!, Number(env.RSSH_FTP_PORT), `${fp.slice(0, -2)}00`, true) // pretend another cert was pinned
+    const third: PromptRequest[] = []
+    await expect(withAnswer('reject', true, third).connect()).rejects.toBeInstanceOf(CancelledError)
+    expect(third).toMatchObject([{ kind: 'certificate', changed: true }])
   })
 })
 
@@ -155,7 +189,7 @@ describe.skipIf(!env.RSSH_SFTP_HOST)('SFTP', () => {
     const s = new SFTPSession(context(site(env.RSSH_SFTP_RSA_KEY!), '', asked))
     await s.connect()
     expect(asked.map((a) => a.kind)).toContain('password')
-    expect((await s.list(work)).length).toBeGreaterThanOrEqual(0)
+    expect(Array.isArray(await s.list(work))).toBe(true)
     s.close()
   })
 
@@ -163,6 +197,19 @@ describe.skipIf(!env.RSSH_SFTP_HOST)('SFTP', () => {
     const ctx = context(site(env.RSSH_SFTP_KEY!))
     ctx.prompter = { ask: async () => 'reject' }
     await expect(new SFTPSession(ctx).connect()).rejects.toThrow(/host key/i)
+  })
+
+  it('warns about a changed host key and leaves the stored key alone when rejected', async () => {
+    const hosts = new KnownHostsStore(fs.mkdtempSync(path.join(work, 'hosts-')))
+    const wrong = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPUbS24Qa1ge84W6FhPjOR3LpXZfNmS6iDXnK3uZ7j2s'
+    hosts.trust(env.RSSH_SFTP_HOST!, Number(env.RSSH_SFTP_PORT), wrong)
+    const asked: PromptRequest[] = []
+    const ctx = context(site(env.RSSH_SFTP_KEY!))
+    ctx.hostKeys = hosts
+    ctx.prompter = { ask: async (r) => (asked.push(r), 'reject') }
+    await expect(new SFTPSession(ctx).connect()).rejects.toBeInstanceOf(CancelledError)
+    expect(asked).toMatchObject([{ kind: 'hostKey', changed: true }])
+    expect(hosts.check(env.RSSH_SFTP_HOST!, Number(env.RSSH_SFTP_PORT), wrong)).toBe('trusted')
   })
 
   it('runs queued transfers end to end', async () => {
@@ -210,6 +257,9 @@ describe.skipIf(!env.RSSH_SFTP_HOST)('SFTP', () => {
           const session = new SFTPSession(context(site))
           await session.connect()
           return session
+        },
+        error: (text) => {
+          throw new Error(text)
         },
         send: (_channel, events) => {
           for (const e of events) {

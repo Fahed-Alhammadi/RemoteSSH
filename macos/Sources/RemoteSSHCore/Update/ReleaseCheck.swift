@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// The newest published GitHub release and its macOS download.
@@ -14,13 +15,17 @@ public struct ReleaseInfo: Equatable, Sendable {
 public enum ReleaseCheck {
     public static let repository = "Fahed-Alhammadi/RemoteSSH"
 
-    public enum CheckError: LocalizedError {
+    public enum CheckError: LocalizedError, Equatable {
         case http(Int)
         case malformed
+        case missingChecksum
+        case checksumMismatch
         public var errorDescription: String? {
             switch self {
             case .http(let code): "GitHub returned HTTP \(code)."
             case .malformed: "GitHub returned an unexpected response."
+            case .missingChecksum: "The release has no SHA-256 checksum for the macOS download, so it can't be verified."
+            case .checksumMismatch: "The download is damaged (checksum mismatch)."
             }
         }
     }
@@ -46,6 +51,22 @@ public enum ReleaseCheck {
         let digest = asset?.digest.flatMap { $0.hasPrefix("sha256:") ? String($0.dropFirst(7)).lowercased() : nil }
         let version = release.tag_name.hasPrefix("v") ? String(release.tag_name.dropFirst()) : release.tag_name
         return ReleaseInfo(version: version, pageURL: release.html_url, downloadURL: asset?.browser_download_url, sha256: digest)
+    }
+
+    /// Lowercase hex SHA-256 of a file, read in chunks so a large download isn't loaded at once.
+    public static func sha256(ofFileAt url: URL) throws -> String {
+        let file = try FileHandle(forReadingFrom: url)
+        defer { try? file.close() }
+        var hasher = SHA256()
+        while let chunk = try file.read(upToCount: 1 << 20), !chunk.isEmpty { hasher.update(data: chunk) }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Checks a downloaded file against the release's digest (hex, either case). A missing digest is an
+    /// error too: an update that can't be verified is not installed.
+    public static func verify(fileAt url: URL, sha256 expected: String?) throws {
+        guard let expected, !expected.isEmpty else { throw CheckError.missingChecksum }
+        guard try sha256(ofFileAt: url) == expected.lowercased() else { throw CheckError.checksumMismatch }
     }
 
     /// Compares dotted versions numerically ("1.2.10" > "1.2.9"); a leading "v" and suffixes are ignored.

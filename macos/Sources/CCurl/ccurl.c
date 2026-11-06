@@ -1,4 +1,5 @@
 #include "ccurl.h"
+#include <string.h>
 
 CURLcode ccurl_setopt_long(CURL *h, CURLoption opt, long value) { return curl_easy_setopt(h, opt, value); }
 CURLcode ccurl_setopt_off(CURL *h, CURLoption opt, curl_off_t value) { return curl_easy_setopt(h, opt, value); }
@@ -32,3 +33,12 @@ CURLcode ccurl_set_debug(CURL *h, ccurl_debug_cb cb, void *userdata) {
 }
 
 curl_off_t ccurl_size_download(CURL *h) { curl_off_t s = 0; curl_easy_getinfo(h, CURLINFO_SIZE_DOWNLOAD_T, &s); return s; }
+
+const char *ccurl_leaf_certificate_pem(CURL *h) {
+    struct curl_certinfo *info = NULL;
+    if (curl_easy_getinfo(h, CURLINFO_CERTINFO, &info) != CURLE_OK || !info || info->num_of_certs < 1) return NULL;
+    for (struct curl_slist *item = info->certinfo[0]; item; item = item->next) {
+        if (strncmp(item->data, "Cert:", 5) == 0) return item->data + 5;
+    }
+    return NULL;
+}

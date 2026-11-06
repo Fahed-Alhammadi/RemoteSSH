@@ -36,7 +36,7 @@ struct CommandBar: View {
                 IconButton("arrow.clockwise", "Refresh both panes (⇧⌘R)") { model.refreshLocal(); model.refreshRemote() }
                 IconButton("arrow.triangle.2.circlepath", "Reconnect (⌘R)") { model.reconnect() }
                     .disabled(model.currentSite == nil || model.connection == .connecting)
-                IconButton("eject", "Disconnect (⌘D)") { Task { await model.disconnect() } }
+                IconButton("eject", "Disconnect (⌘D)") { model.disconnect() }
                     .disabled(!connected)
             }
             group {

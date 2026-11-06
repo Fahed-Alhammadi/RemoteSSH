@@ -74,6 +74,9 @@ const PROGRAM_EXTENSIONS: Partial<Record<NodeJS.Platform, Set<string>>> = {
   win32: new Set([
     'exe', 'com', 'scr', 'pif', 'bat', 'cmd', 'msi', 'msp', 'msc', 'cpl', 'hta', 'js', 'jse', 'vbs', 'vbe', 'wsf',
     'wsh', 'ps1', 'reg', 'lnk', 'url', 'scf', 'inf', 'application', 'appref-ms', 'jar', 'appx', 'msix', 'settingcontent-ms',
+    // Run scripts or connect out when opened: compiled help, remote desktop, search/library connectors, Excel add-ins,
+    // and disk images (which mount and hide their contents from Mark-of-the-Web checks).
+    'chm', 'rdp', 'library-ms', 'search-ms', 'searchconnector-ms', 'xll', 'iso', 'img', 'vhd', 'vhdx', 'appinstaller', 'diagcab',
   ]),
   darwin: new Set(['app', 'command', 'tool', 'terminal', 'workflow', 'action', 'pkg', 'mpkg', 'scpt', 'jar', 'fileloc', 'inetloc', 'webloc']),
   linux: new Set(['desktop', 'appimage', 'run', 'jar', 'deb', 'rpm']),
@@ -83,4 +86,18 @@ const PROGRAM_EXTENSIONS: Partial<Record<NodeJS.Platform, Set<string>>> = {
 export function opensAsProgram(name: string, platform: NodeJS.Platform = process.platform): boolean {
   const dot = name.lastIndexOf('.')
   return dot >= 0 && (PROGRAM_EXTENSIONS[platform]?.has(name.slice(dot + 1).toLowerCase()) ?? false)
+}
+
+/**
+ * Windows: tags a downloaded file with Mark-of-the-Web (Internet zone), so SmartScreen, Office Protected View
+ * and similar checks treat it as coming from a server. No effect elsewhere (Gatekeeper uses the Mac app's own
+ * quarantine; Linux has no equivalent). Best effort: a file system without alternate data streams is skipped.
+ */
+export function markFromInternet(file: string, source: string, platform: NodeJS.Platform = process.platform): void {
+  if (platform !== 'win32') return
+  try {
+    fs.writeFileSync(`${file}:Zone.Identifier`, `[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=${source.replace(/[\r\n]/g, '')}\r\n`)
+  } catch {
+    // e.g. FAT32 or a network share without streams
+  }
 }

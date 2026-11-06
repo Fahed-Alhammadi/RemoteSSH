@@ -22,4 +22,8 @@ CURLcode ccurl_set_debug(CURL *h, ccurl_debug_cb cb, void *userdata);
 
 curl_off_t ccurl_size_download(CURL *h);
 
+// The server certificate (PEM, the "Cert:" field of CURLINFO_CERTINFO for the leaf) of the last transfer
+// made with CURLOPT_CERTINFO, or NULL. Owned by curl: valid until the next transfer or cleanup.
+const char *ccurl_leaf_certificate_pem(CURL *h);
+
 #endif

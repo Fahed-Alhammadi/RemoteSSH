@@ -12,8 +12,25 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
     private weak var prompter: SessionPrompter?
     private let hostKeys: KnownHostsStore
     private let log: LogSink
-    private var client: SSHClient?
-    private var sftp: SFTPClient?
+    /// Guards the connection state below: connect, disconnect, browsing and transfers run on
+    /// different tasks and threads.
+    private let lock = NSLock()
+    private var _client: SSHClient?
+    private var _sftp: SFTPClient?
+    private var _keyPassphrase: String?
+
+    private var client: SSHClient? {
+        get { lock.withLock { _client } }
+        set { lock.withLock { _client = newValue } }
+    }
+    private var sftp: SFTPClient? {
+        get { lock.withLock { _sftp } }
+        set { lock.withLock { _sftp = newValue } }
+    }
+
+    /// The passphrase that unlocked the key file (given or typed at the prompt), so the app can reuse it
+    /// for the site's other connections instead of asking again.
+    public var keyPassphrase: String? { lock.withLock { _keyPassphrase } }
 
     public var isEncrypted: Bool { true }
 
@@ -76,12 +93,17 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
             do { return try load(nil) } catch { throw parseError(error) }
         }
         if let pass = credentials.keyPassphrase, let method = try? load(pass) {
+            lock.withLock { _keyPassphrase = pass }
             return method
         }
         guard let pass = await prompter?.requestPassword(prompt: "Enter the passphrase for key file \(path)") else {
             throw RemoteSSHError.authenticationFailed("Key file is encrypted and no passphrase was given")
         }
-        do { return try load(pass) } catch {
+        do {
+            let method = try load(pass)
+            lock.withLock { _keyPassphrase = pass }
+            return method
+        } catch {
             throw RemoteSSHError.authenticationFailed("Wrong passphrase for key file \(path)")
         }
     }
@@ -99,16 +121,20 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
             hostKeyValidator: .custom(validator)
         )
         settings.connectTimeout = .seconds(Int64(options.connectTimeout))
+        var connected: SSHClient?
         do {
             let client = try await SSHClient.connect(to: settings)
-            self.client = client
+            connected = client
             log(LogLine(.status, "Connected to \(site.host)"))
-            sftp = try await client.openSFTP()
+            let sftp = try await client.openSFTP()
+            lock.withLock {
+                _client = client
+                _sftp = sftp
+            }
             log(LogLine(.response, "SFTP subsystem started"))
         } catch {
             // Don't leave the SSH connection open when only the SFTP subsystem failed.
-            try? await client?.close()
-            client = nil
+            try? await connected?.close()
             if validator.rejected { throw RemoteSSHError.hostKeyRejected }
             if "\(error)".localizedCaseInsensitiveContains("auth") {
                 throw RemoteSSHError.authenticationFailed(String(describing: error))
@@ -118,10 +144,12 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
     }
 
     public func disconnect() async {
+        let (sftp, client) = lock.withLock {
+            defer { _sftp = nil; _client = nil }
+            return (_sftp, _client)
+        }
         try? await sftp?.close()
         try? await client?.close()
-        sftp = nil
-        client = nil
         log(LogLine(.status, "Disconnected from server"))
     }
 
@@ -209,8 +237,12 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
                          output: @escaping @Sendable (Data) -> Void) async throws -> String {
         guard let client else { throw RemoteSSHError.notConnected }
         if let dir, dir != (try? await homeDirectory()) {
-            // The leading space keeps the command out of shell history (HISTCONTROL=ignorespace).
-            shell.write(" cd -- \(shellQuote(dir)) && clear\n")
+            // A name with control characters would act as keys typed into the shell; stay in the home folder.
+            if let command = changeDirectoryCommand(dir) {
+                shell.write(command + " && clear\n")
+            } else {
+                log(LogLine(.error, unsafeTerminalFolderMessage))
+            }
         }
         let request = SSHChannelRequestEvent.PseudoTerminalRequest(
             wantReply: true, term: "xterm-256color",
@@ -253,7 +285,20 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
     private func wrap(_ body: @escaping () async throws -> Void) async throws {
         do { try await body() } catch let e as RemoteSSHError { throw e } catch {
             log(LogLine(.error, String(describing: error)))
-            throw RemoteSSHError.commandFailed(String(describing: error))
+            let translated = Self.translate(error)
+            throw translated is RemoteSSHError ? translated : RemoteSSHError.commandFailed(String(describing: error))
+        }
+    }
+
+    /// Server status replies become `RemoteSSHError`s, so "permission denied" and "no such file" (which a
+    /// retry can't fix) can be told apart. Other errors pass through unchanged.
+    static func translate(_ error: Error) -> Error {
+        guard let status = error as? SFTPMessage.Status else { return error }
+        let text = status.message.isEmpty ? status.errorCode.debugDescription : status.message
+        switch status.errorCode {
+        case .permissionDenied: return RemoteSSHError.accessDenied("Permission denied: \(text)")
+        case .noSuchFile: return RemoteSSHError.fileNotFound("No such file: \(text)")
+        default: return RemoteSSHError.commandFailed(text)
         }
     }
 
@@ -262,50 +307,51 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
     public func download(_ remotePath: String, to localURL: URL, resumeFrom offset: Int64, cancel: CancelToken, progress: @escaping ProgressHandler) async throws {
         let sftp = try requireSFTP()
         log(LogLine(.status, "Starting download of \(remotePath)"))
-        let remote = try await sftp.openFile(filePath: remotePath, flags: .read)
+        let remote: SFTPFile
+        do { remote = try await sftp.openFile(filePath: remotePath, flags: .read) } catch { throw Self.translate(error) }
         defer { Task { try? await remote.close() } }
         let total = try await remote.readAttributes().size.map { Int64($0) }
 
-        let fm = FileManager.default
-        if offset == 0 || !fm.fileExists(atPath: localURL.path) { fm.createFile(atPath: localURL.path, contents: nil) }
-        let local = try FileHandle(forWritingTo: localURL)
-        defer { try? local.close() }
-        if offset > 0 { try local.seek(toOffset: UInt64(offset)) } else { try local.truncate(atOffset: 0) }
-
         var position = offset
-        var chunkSize = Self.chunkSize
-        while true {
-            if cancel.isCancelled { throw RemoteSSHError.cancelled }
-            // Issue several reads concurrently, then write them in order.
-            let start = position
-            let length = chunkSize
-            let chunks = try await withThrowingTaskGroup(of: (Int, ByteBuffer).self) { group in
-                for i in 0..<Self.pipelineDepth {
-                    let at = UInt64(start) + UInt64(i) * UInt64(length)
-                    if let total, Int64(at) >= total, i > 0 { break }
-                    group.addTask { (i, try await remote.read(from: at, length: length)) }
+        try await DownloadTarget.write(to: localURL, resumeFrom: offset) { target in
+            let local = target.handle
+            var chunkSize = Self.chunkSize
+            var lastShortRead: Int?
+            while true {
+                if cancel.isCancelled { throw RemoteSSHError.cancelled }
+                if let total, position >= total { break }
+                // Issue several reads concurrently, then write them in order.
+                let start = position
+                let length = chunkSize
+                let chunks = try await withThrowingTaskGroup(of: (Int, ByteBuffer).self) { group in
+                    for i in 0..<Self.pipelineDepth {
+                        let at = UInt64(start) + UInt64(i) * UInt64(length)
+                        if let total, Int64(at) >= total, i > 0 { break }
+                        group.addTask { (i, try await remote.read(from: at, length: length)) }
+                    }
+                    var result: [(Int, ByteBuffer)] = []
+                    for try await item in group { result.append(item) }
+                    return result.sorted { $0.0 < $1.0 }.map(\.1)
                 }
-                var result: [(Int, ByteBuffer)] = []
-                for try await item in group { result.append(item) }
-                return result.sorted { $0.0 < $1.0 }.map(\.1)
-            }
-            var reachedEnd = false
-            for var buffer in chunks {
-                let count = buffer.readableBytes
-                if count == 0 { reachedEnd = true; break }
-                if let bytes = buffer.readBytes(length: count) { try local.write(contentsOf: bytes) }
-                position += Int64(count)
-                if count < Int(length) {
-                    // Servers may cap the read size, so a short read before the known size is not the end:
-                    // the rest of this batch was requested at offsets that are now wrong, so drop it, read
-                    // on from `position` and ask for what the server sends at once.
-                    reachedEnd = total == nil
-                    chunkSize = UInt32(count)
-                    break
+                var reachedEnd = false
+                for var buffer in chunks {
+                    let count = buffer.readableBytes
+                    // Only an empty read (EOF) ends the file; with a known size the loop ends at `total`.
+                    if count == 0 { reachedEnd = true; break }
+                    if let bytes = buffer.readBytes(length: count) { try local.write(contentsOf: bytes) }
+                    position += Int64(count)
+                    if count < Int(length) {
+                        // A short read is not the end: the server may cap the read size. The rest of this batch
+                        // was requested at offsets that are now wrong, so drop it and read on from `position`.
+                        // The same short size twice in a row is the server's limit; ask for that from then on.
+                        if lastShortRead == count { chunkSize = UInt32(count) }
+                        lastShortRead = count
+                        break
+                    }
                 }
+                progress(TransferProgress(transferred: position, total: total))
+                if reachedEnd { break }
             }
-            progress(TransferProgress(transferred: position, total: total))
-            if reachedEnd || (total != nil && position >= total!) { break }
         }
         log(LogLine(.status, "File transfer successful, transferred \(position - offset) bytes"))
     }
@@ -313,15 +359,18 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
     public func upload(_ localURL: URL, to remotePath: String, resumeFrom offset: Int64, cancel: CancelToken, progress: @escaping ProgressHandler) async throws {
         let sftp = try requireSFTP()
         log(LogLine(.status, "Starting upload of \(localURL.path)"))
-        let size = (try? FileManager.default.attributesOfItem(atPath: localURL.path)[.size] as? Int64) ?? 0
-        let flags: SFTPOpenFileFlags = offset > 0 ? [.write, .create] : [.write, .create, .truncate]
-        let remote = try await sftp.openFile(filePath: remotePath, flags: flags)
+        // Open the local file first: a missing or unreadable file must not truncate the remote one.
         let local = try FileHandle(forReadingFrom: localURL)
         defer { try? local.close() }
-        if offset > 0 { try local.seek(toOffset: UInt64(offset)) }
+        let size = Int64(try local.seekToEnd())
+        try local.seek(toOffset: UInt64(offset))
+        let flags: SFTPOpenFileFlags = offset > 0 ? [.write, .create] : [.write, .create, .truncate]
 
         var position = offset
+        var remote: SFTPFile?
         do {
+            let file = try await sftp.openFile(filePath: remotePath, flags: flags)
+            remote = file
             while position < size {
                 if cancel.isCancelled { throw RemoteSSHError.cancelled }
                 var batch: [(UInt64, Data)] = []
@@ -333,16 +382,17 @@ public final class SFTPSession: RemoteSession, @unchecked Sendable {
                 if batch.isEmpty { break }
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     for (at, data) in batch {
-                        group.addTask { try await remote.write(ByteBuffer(bytes: data), at: at) }
+                        group.addTask { try await file.write(ByteBuffer(bytes: data), at: at) }
                     }
                     try await group.waitForAll()
                 }
                 progress(TransferProgress(transferred: position, total: size))
             }
-            try await remote.close()
+            remote = nil
+            try await file.close()
         } catch {
-            try? await remote.close()
-            throw error
+            try? await remote?.close()
+            throw Self.translate(error)
         }
         log(LogLine(.status, "File transfer successful, transferred \(position - offset) bytes"))
     }

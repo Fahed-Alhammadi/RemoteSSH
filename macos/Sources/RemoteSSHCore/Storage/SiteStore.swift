@@ -5,22 +5,49 @@ import Security
 /// passwords never touch disk — they live in the macOS Keychain.
 public final class SiteStore: @unchecked Sendable {
     private let url: URL
+    private let lock = NSLock()
+    /// Set when the file could not be read in full: saving would replace it with the sites that loaded.
+    private var unreadFile: StoreLoadProblem?
 
     public init(url: URL = AppPaths.file("sites.json")) {
         self.url = url
     }
 
-    public func load() -> [Site] {
-        guard let data = try? Data(contentsOf: url) else { return [] }
-        return (try? JSONDecoder().decode([Site].self, from: data)) ?? []
+    /// The saved sites. When the file exists but can't be read in full, the readable sites are returned
+    /// with a `problem`, the file is backed up, and `save` refuses to overwrite it until `allowSaving()`.
+    public func load() -> (sites: [Site], problem: StoreLoadProblem?) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return ([], nil) }
+        let result: (sites: [Site], problem: StoreLoadProblem?)
+        do {
+            let entries = try JSONDecoder().decode([LossySite].self, from: Data(contentsOf: url))
+            let sites = entries.compactMap(\.site)
+            let skipped = entries.count - sites.count
+            result = (sites, skipped == 0 ? nil : .make(url, nil, detail: "\(skipped) site\(skipped == 1 ? "" : "s") could not be read"))
+        } catch {
+            result = ([], .make(url, error))
+        }
+        lock.withLock { unreadFile = result.problem }
+        return result
+    }
+
+    /// Call once the user has been told about the load problem; the next save replaces the file.
+    public func allowSaving() {
+        lock.withLock { unreadFile = nil }
     }
 
     public func save(_ sites: [Site]) throws {
+        if let problem = lock.withLock({ unreadFile }) { throw problem }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(sites).write(to: url, options: [.atomic])
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
+}
+
+/// One element of the site list; a site that fails to decode becomes nil instead of failing the whole list.
+private struct LossySite: Decodable {
+    let site: Site?
+    init(from decoder: Decoder) throws { site = try? Site(from: decoder) }
 }
 
 public enum Keychain {

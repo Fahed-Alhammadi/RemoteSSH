@@ -28,4 +28,7 @@ jobs:
       # SwiftTerm compiles a Metal shader; Xcode 26+ ships the Metal Toolchain as a separate download.
       - run: xcrun metal --version >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
       - run: swift build
-      - run: swift test
+      # Unit tests plus the live FTP/FTPES/SFTP tests against throwaway local servers (sshd + pyftpdlib);
+      # test-servers.sh exports the RSSH_* variables the integration tests are enabled by.
+      - name: Unit + live FTP/FTPS/SFTP tests
+        run: ../scripts/test-servers.sh swift test

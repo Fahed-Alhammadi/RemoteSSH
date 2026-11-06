@@ -17,9 +17,19 @@ final class TransferManager {
 
     @ObservationIgnored private var cancelTokens: [UUID: CancelToken] = [:]
     @ObservationIgnored private var idleSessions: [UUID: [RemoteSession]] = [:]
+    /// Closes the pooled connections once the queue has been empty for a while.
+    @ObservationIgnored private var idleTimer: Task<Void, Never>?
+    private static let idleTimeout: Duration = .seconds(60)
     @ObservationIgnored private var retries: [UUID: Int] = [:]
+    /// Items that already had their free retry after failing on a reused (possibly stale) pooled connection.
+    @ObservationIgnored private var freshRetried: Set<UUID> = []
+    /// Queued retries wait until this time (backoff) before they start again.
+    @ObservationIgnored private var retryAt: [UUID: ContinuousClock.Instant] = [:]
     @ObservationIgnored private var overwriteForAll: [TransferDirection: OverwriteAction] = [:]
     @ObservationIgnored private var saveScheduled = false
+    @ObservationIgnored private var saveFailed = false
+    /// Queue saves run here, in order, off the main thread.
+    @ObservationIgnored private let saveQueue = DispatchQueue(label: "remotessh.queue-store", qos: .utility)
     /// Items that skip the "file exists" check (View/Edit re-uploads).
     @ObservationIgnored private var forceOverwrite: Set<UUID> = []
     /// Running items the user removed; they leave the list once their worker stops.
@@ -38,74 +48,86 @@ final class TransferManager {
 
     // MARK: Enqueue
 
+    /// Folders are listed with the browse session as it was when the download was requested; when the
+    /// connection changes (Disconnect, another site) adding stops.
     func enqueueDownload(entries: [FileEntry], remoteDir: String, localDir: String, site: Site) {
+        let session = model.session
         Task {
             for entry in entries {
                 let remote = RemotePath.join(remoteDir, entry.name)
                 let local = (localDir as NSString).appendingPathComponent(entry.name)
                 if entry.isDirectory {
-                    await expandRemoteDirectory(remote: remote, local: local, site: site)
+                    guard let session, model.session === session else { break }
+                    await expandRemoteDirectory(session, remote: remote, local: local, site: site)
                 } else {
                     add(TransferItem(siteID: site.id, direction: .download, localPath: local, remotePath: remote, size: entry.size))
                 }
             }
+            if let session, model.session !== session { model.status("Stopped adding folder contents to the queue: the connection changed") }
             resume()
         }
     }
 
-    private func expandRemoteDirectory(remote: String, local: String, site: Site) async {
-        guard let session = model.session else { return }
+    private func expandRemoteDirectory(_ session: RemoteSession, remote: String, local: String, site: Site) async {
+        guard model.session === session else { return }
         do {
             try FileManager.default.createDirectory(atPath: local, withIntermediateDirectories: true)
             for child in try await session.list(remote) {
+                guard model.session === session else { return }
                 let r = RemotePath.join(remote, child.name)
                 let l = (local as NSString).appendingPathComponent(child.name)
                 if child.isDirectory && child.isLink {
                     // Links to folders can loop (e.g. "up -> .."), which would recurse forever.
                     model.status("Skipped \(r): links to folders inside a folder are not followed")
                 } else if child.isDirectory {
-                    await expandRemoteDirectory(remote: r, local: l, site: site)
+                    await expandRemoteDirectory(session, remote: r, local: l, site: site)
                 } else {
                     add(TransferItem(siteID: site.id, direction: .download, localPath: l, remotePath: r, size: child.size))
                 }
             }
         } catch {
+            guard model.session === session else { return }
             model.error("Could not list \(remote): \(error.localizedDescription)")
         }
     }
 
     func enqueueUpload(localPaths: [String], remoteDir: String, site: Site) {
+        let session = model.session
         Task {
             for path in localPaths {
                 let remote = RemotePath.join(remoteDir, (path as NSString).lastPathComponent)
                 var isDir: ObjCBool = false
                 guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir) else { continue }
                 if isDir.boolValue {
+                    guard let session, model.session === session else { break }
                     var visited: Set<String> = []
-                    await expandLocalDirectory(local: path, remote: remote, site: site, visited: &visited)
+                    await expandLocalDirectory(session, local: path, remote: remote, site: site, visited: &visited)
                 } else {
                     add(TransferItem(siteID: site.id, direction: .upload, localPath: path, remotePath: remote, size: LocalFileSystem.size(path)))
                 }
             }
+            if let session, model.session !== session { model.status("Stopped adding folder contents to the queue: the connection changed") }
             resume()
         }
     }
 
     /// `visited` holds the real paths of folders already expanded, so symbolic link loops end.
-    private func expandLocalDirectory(local: String, remote: String, site: Site, visited: inout Set<String>) async {
+    private func expandLocalDirectory(_ session: RemoteSession, local: String, remote: String, site: Site, visited: inout Set<String>) async {
+        guard model.session === session else { return }
         guard visited.insert(URL(fileURLWithPath: local).resolvingSymlinksInPath().path).inserted else {
             model.status("Skipped \(local): folder already included (symbolic link loop)")
             return
         }
-        if let session = model.session { try? await session.makeDirectory(remote) }  // may already exist
+        try? await session.makeDirectory(remote)  // may already exist
         guard let children = try? FileManager.default.contentsOfDirectory(atPath: local) else { return }
         for name in children.sorted() {
+            guard model.session === session else { return }
             let l = (local as NSString).appendingPathComponent(name)
             let r = RemotePath.join(remote, name)
             var isDir: ObjCBool = false
             FileManager.default.fileExists(atPath: l, isDirectory: &isDir)
             if isDir.boolValue {
-                await expandLocalDirectory(local: l, remote: r, site: site, visited: &visited)
+                await expandLocalDirectory(session, local: l, remote: r, site: site, visited: &visited)
             } else {
                 add(TransferItem(siteID: site.id, direction: .upload, localPath: l, remotePath: r, size: LocalFileSystem.size(l)))
             }
@@ -130,8 +152,10 @@ final class TransferManager {
         guard processing else { return }
         let free = model.settings.maxConcurrentTransfers - activeCount
         guard free > 0 else { return }
-        let next = items.filter { $0.status == .queued }.prefix(free)
+        let now = ContinuousClock.now
+        let next = items.filter { $0.status == .queued && retryAt[$0.id].map { $0 <= now } ?? true }.prefix(free)
         for item in next {
+            retryAt[item.id] = nil
             setStatus(item.id, .transferring)
             Task { await run(item.id) }
         }
@@ -144,17 +168,33 @@ final class TransferManager {
 
     /// Stops running transfers; waiting ones are marked as interrupted so they don't start later.
     func cancel(_ ids: Set<UUID>) {
-        for id in ids { cancelTokens[id]?.cancel() }
+        for id in ids {
+            cancelTokens[id]?.cancel()
+            retryAt[id] = nil
+        }
         for item in items where ids.contains(item.id) && item.status == .queued {
             setStatus(item.id, .failed, error: RemoteSSHError.cancelled.localizedDescription)
         }
     }
 
-    /// Drops pooled connections, e.g. after sites were edited, so new transfers use the new settings.
+    /// Closes the pooled connections that aren't transferring: on Disconnect, after sites were edited (so new
+    /// transfers use the new settings), and once the queue has been empty for `idleTimeout`.
     func closeIdle() {
+        idleTimer?.cancel()
+        idleTimer = nil
         let pools = idleSessions.values.flatMap { $0 }
         idleSessions.removeAll()
-        Task { for session in pools { await session.disconnect() } }
+        for session in pools { AppModel.close(session) }
+    }
+
+    private func scheduleIdleClose() {
+        idleTimer?.cancel()
+        guard !idleSessions.isEmpty else { return }
+        idleTimer = Task { [weak self] in
+            try? await Task.sleep(for: Self.idleTimeout)
+            guard !Task.isCancelled, let self, self.queued.isEmpty else { return }
+            self.closeIdle()
+        }
     }
 
     func remove(_ ids: Set<UUID>) {
@@ -170,6 +210,7 @@ final class TransferManager {
             items[i].error = nil
             items[i].transferred = 0
             retries[items[i].id] = nil
+            freshRetried.remove(items[i].id)
         }
         scheduleSave()
         resume()
@@ -196,16 +237,17 @@ final class TransferManager {
         scheduleSave()
     }
 
-    private func acquireSession(for site: Site) async throws -> RemoteSession {
+    /// A pooled connection of the site (`reused`) or a new one.
+    private func acquireSession(for site: Site) async throws -> (session: RemoteSession, reused: Bool) {
         if var pool = idleSessions[site.id], !pool.isEmpty {
             let s = pool.removeLast()
             idleSessions[site.id] = pool
-            return s
+            return (s, true)
         }
         let session = model.makeSession(for: site, password: model.password(for: site) ?? "")
         try await session.connect()
         model.noteConnected(session)
-        return session
+        return (session, false)
     }
 
     private func release(_ session: RemoteSession, siteID: UUID) {
@@ -229,14 +271,20 @@ final class TransferManager {
                 scheduleSave()
             }
             resume()
-            // "Apply to all" answers last for one batch of transfers, not the rest of the session.
-            if queued.isEmpty { overwriteForAll.removeAll() }
+            if queued.isEmpty {
+                // "Apply to all" answers last for one batch of transfers, not the rest of the session.
+                overwriteForAll.removeAll()
+                scheduleIdleClose()
+            }
         }
 
         var session: RemoteSession?
+        var reused = false
         do {
-            let s = try await acquireSession(for: site)
+            let acquired = try await acquireSession(for: site)
+            let s = acquired.session
             session = s
+            reused = acquired.reused
             guard let offset = try await resolveConflict(item, session: s) else {
                 setStatus(id, .finished, error: "Skipped")
                 release(s, siteID: site.id)
@@ -261,28 +309,34 @@ final class TransferManager {
             refreshPanes(for: target)
         } catch {
             let message = error.localizedDescription
-            if case RemoteSSHError.cancelled = error {
-                setStatus(id, .failed, error: message)
-                if let session { release(session, siteID: site.id) }
-                return
-            }
-            // The user rejected the host key or certificate, cancelled a prompt, or the login is wrong:
+            // Cancelled, host key or certificate rejected, login refused, permission denied, file missing:
             // retrying would only ask again or fail the same way.
-            switch error {
-            case RemoteSSHError.hostKeyRejected, RemoteSSHError.certificateRejected, RemoteSSHError.authenticationFailed:
-                if let session { await session.disconnect() }
-                model.error("\(item.fileName): \(message)")
+            if TransferRetry.isPermanent(error) {
+                // The connection itself worked (a failed login never returns one), so it can be reused.
+                if let session { release(session, siteID: site.id) }
+                if case RemoteSSHError.cancelled = error {} else { model.error("\(item.fileName): \(message)") }
                 setStatus(id, .failed, error: message)
                 return
-            default: break
             }
-            // Connection-level failures: drop the session and retry a few times.
-            if let session { await session.disconnect() }
+            // Connection-level failures: drop the session and retry.
+            if let session { AppModel.close(session) }
+            // A pooled connection may have gone stale while it was idle: one free retry on a new connection.
+            if reused, freshRetried.insert(id).inserted {
+                model.status("Retrying \(item.fileName) on a new connection: \(message)")
+                setStatus(id, .queued)
+                return
+            }
             let attempts = retries[id, default: 0]
             if attempts < model.settings.retryCount {
                 retries[id] = attempts + 1
-                model.status("Retrying \(item.fileName) (\(attempts + 1)/\(model.settings.retryCount)): \(message)")
+                let delay = TransferRetry.delay(forAttempt: attempts + 1)
+                model.status("Retrying \(item.fileName) in \(delay.components.seconds) s (\(attempts + 1)/\(model.settings.retryCount)): \(message)")
+                retryAt[id] = .now + delay
                 setStatus(id, .queued)
+                Task { [weak self] in
+                    try? await Task.sleep(for: delay)
+                    self?.resume()
+                }
             } else {
                 model.error("\(item.fileName): \(message)")
                 setStatus(id, .failed, error: message)
@@ -366,14 +420,26 @@ final class TransferManager {
         if item.direction == .upload, dir == model.remotePath, activeCount <= 1 { model.refreshRemote() }
     }
 
+    /// Saves at most twice a second; the store writes only changed rows, on `saveQueue`.
     private func scheduleSave() {
         guard !saveScheduled else { return }
         saveScheduled = true
         Task {
             try? await Task.sleep(for: .milliseconds(500))
             saveScheduled = false
-            store.save(items)
+            let snapshot = items
+            let store = self.store
+            saveQueue.async {
+                let ok = store.save(snapshot)
+                Task { @MainActor in self.noteSave(ok) }
+            }
         }
+    }
+
+    private func noteSave(_ ok: Bool) {
+        // Report a failure once, not on every later save.
+        if !ok && !saveFailed { model.error("Could not save the transfer queue; pending transfers may be lost on quit.") }
+        saveFailed = !ok
     }
 }
 

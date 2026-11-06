@@ -57,12 +57,14 @@ public struct SiteArchive: Codable, Sendable {
 
     /// Sites ready to be merged into an existing list: every site gets a fresh id so
     /// importing the same file twice never collides, and passwords follow their site.
+    /// Certificate trust is never imported: a file from elsewhere must not pre-approve a server.
     public func importable() -> (sites: [Site], passwords: [UUID: String]) {
         var newSites: [Site] = []
         var newPasswords: [UUID: String] = [:]
         for var site in sites {
             let oldID = site.id
             site.id = UUID()
+            site.trustInvalidCertificate = false
             if let pw = passwords?[oldID.uuidString] ?? passwords?[oldID.uuidString.lowercased()] { newPasswords[site.id] = pw }
             newSites.append(site)
         }

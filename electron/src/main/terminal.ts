@@ -1,13 +1,14 @@
 import type { ClientChannel } from 'ssh2'
 import { Events, type TerminalEvent } from '../shared/api'
 import type { Site } from '../shared/types'
-import { shellQuote } from '../shared/util'
+import { hasControlChars, shellQuote } from '../shared/util'
 import type { SFTPSession } from './engine/sftpSession'
 
 interface TerminalDeps {
   /** A new, connected SSH session for the site (never the browse session). */
   connect(site: Site): Promise<SFTPSession>
   send(channel: string, payload: TerminalEvent[]): void
+  error(text: string): void
 }
 
 interface Shell {
@@ -15,9 +16,19 @@ interface Shell {
   channel: ClientChannel
   output: string
   exitCode: number | null
+  /** Characters sent to the renderer that xterm has not drawn yet. */
+  unacked: number
+  paused: boolean
 }
 
-/** Interactive SSH shells for the terminal panel, one connection each. Output is batched every 16 ms. */
+/** Flow control: reading from the server pauses while this much output waits to be drawn, and resumes below LOW. */
+const HIGH_WATER = 1_000_000
+const LOW_WATER = 200_000
+
+/**
+ * Interactive SSH shells for the terminal panel, one connection each. Output is batched every 16 ms, and the
+ * SSH channel is paused while the renderer is behind (e.g. `cat` of a huge log), so memory stays bounded.
+ */
 export class Terminals {
   private shells = new Map<number, Shell>()
   private nextID = 0
@@ -33,10 +44,15 @@ export class Terminals {
       const home = await session.pwd()
       const channel = await session.shell(cols, rows)
       const id = ++this.nextID
-      const shell: Shell = { session, channel, output: '', exitCode: null }
+      const shell: Shell = { session, channel, output: '', exitCode: null, unacked: 0, paused: false }
       this.shells.set(id, shell)
       const append = (text: string) => {
         shell.output += text
+        shell.unacked += text.length
+        if (!shell.paused && shell.unacked > HIGH_WATER) {
+          shell.paused = true
+          channel.pause()
+        }
         this.flushTimer ??= setTimeout(() => this.flush(), 16)
       }
       channel.setEncoding('utf8')
@@ -58,7 +74,10 @@ export class Terminals {
         this.flush()
       })
       // The leading space keeps the command out of shell history (HISTCONTROL=ignorespace).
-      if (dir && dir !== home) channel.write(` cd -- ${shellQuote(dir)} && clear\n`)
+      if (dir && dir !== home) {
+        if (hasControlChars(dir)) this.deps.error('The folder name contains control characters; the terminal opened in your home folder.')
+        else channel.write(` cd -- ${shellQuote(dir)} && clear\n`)
+      }
       return id
     } catch (e) {
       session.close()
@@ -69,6 +88,16 @@ export class Terminals {
   write(id: number, data: string): void {
     const channel = this.shells.get(id)?.channel
     if (channel?.writable) channel.write(data)
+  }
+
+  ack(id: number, chars: number): void {
+    const shell = this.shells.get(id)
+    if (!shell) return
+    shell.unacked = Math.max(0, shell.unacked - chars)
+    if (shell.paused && shell.unacked < LOW_WATER) {
+      shell.paused = false
+      shell.channel.resume()
+    }
   }
 
   resize(id: number, cols: number, rows: number): void {
