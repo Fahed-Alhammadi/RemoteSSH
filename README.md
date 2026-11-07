@@ -21,8 +21,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app-dark.webp">
-    <img src="docs/images/app-light.webp" alt="RemoteSSH connected over SFTP: saved sites in the sidebar, the local and remote folders side by side with changed files marked, and the activity log below." width="860">
+    <source media="(prefers-color-scheme: dark)" srcset="Website/images/app-dark.webp">
+    <img src="Website/images/app-light.webp" alt="RemoteSSH connected over SFTP: saved sites in the sidebar, the local and remote folders side by side with changed files marked, and the activity log below." width="860">
   </picture>
 </p>
 
@@ -90,7 +90,7 @@ The apps contact only your servers and GitHub (to look for updates). There are n
 | `macos/` | macOS app: SwiftUI, Citadel for SFTP, libcurl for FTP/FTPS, SwiftTerm |
 | `electron/` | Windows and Linux app: Electron, React, TypeScript, ssh2, basic-ftp, xterm.js |
 | `windows/`, `linux/` | Packaging settings for the Electron app; packages are written to their `dist/` |
-| `docs/` | The website (GitHub Pages) |
+| `Website/` | The website (deployed to GitHub Pages by `.github/workflows/pages.yml`) |
 | `scripts/` | Throwaway SFTP/FTP test servers and the icon generator |
 
 **Windows and Linux** (Node.js 22 or later):
