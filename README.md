@@ -115,7 +115,7 @@ cd macos
 
 ## Support
 
-Questions and bug reports go to [GitHub Issues](https://github.com/Fahed-Alhammadi/RemoteSSH/issues). Please leave out passwords, private keys and server addresses you don't want to make public.
+Questions and bug reports go to [GitHub Issues](https://github.com/Fahed-Alhammadi/RemoteSSH/issues). Please leave out passwords, private keys and server addresses you don't want to make public. To report a security vulnerability, don't open an issue; follow [SECURITY.md](SECURITY.md) instead.
 
 ## License
 
