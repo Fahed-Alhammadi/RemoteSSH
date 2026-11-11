@@ -1,0 +1,55 @@
+name: CodeQL
+
+# Code scanning for every language in the repo. Results: Security → Code scanning.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '23 4 * * 1' # Mondays 04:23 UTC, so new queries also run on unchanged code
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      security-events: write # upload results
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { language: javascript-typescript, build-mode: none, os: ubuntu-latest } # electron/, Website/
+          - { language: actions, build-mode: none, os: ubuntu-latest } # .github/workflows
+          - { language: c-cpp, build-mode: none, os: ubuntu-latest } # macos/Sources/CCurl, CRSAShim
+          - { language: python, build-mode: none, os: ubuntu-latest } # scripts/test-ftpserver.py
+          - { language: swift, build-mode: manual, os: macos-15 } # macos/ (Swift analysis needs macOS)
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+
+      # Swift is analysed while it compiles, so build it the way macos.yml does.
+      - if: matrix.language == 'swift'
+        name: Build the Mac app
+        working-directory: macos
+        run: |
+          # SwiftTerm compiles a Metal shader; Xcode 26+ ships the Metal Toolchain as a separate download.
+          xcrun metal --version >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
+          swift build
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
