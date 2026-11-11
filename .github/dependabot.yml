@@ -1,0 +1,54 @@
+# Dependabot version updates. Security updates are enabled in the repository settings.
+# https://docs.github.com/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+version: 2
+updates:
+  # Electron app (Windows/Linux).
+  - package-ecosystem: npm
+    directory: /electron
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "electron"
+    groups:
+      # One PR for all minor/patch bumps; major bumps (Electron, React, Vite…) stay separate.
+      npm-minor-patch:
+        update-types: [minor, patch]
+
+  # Mac app (SwiftPM).
+  - package-ecosystem: swift
+    directory: /macos
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "macos"
+    groups:
+      swift:
+        patterns: ["*"]
+    ignore:
+      # Pinned on purpose (see the comments in Package.swift and CLAUDE.md → Pins).
+      # Citadel 0.12.1 switched swift-nio-ssh to an unvetted fork; RSASHA2.swift reads a 0.12.0 internal.
+      - dependency-name: "*citadel*"
+      # SwiftTerm 1.20 is a pre-release, 1.99 previews 2.0.
+      - dependency-name: "*swiftterm*"
+      # Must match what Citadel 0.12.0 resolves.
+      - dependency-name: "*swift-nio-ssh*"
+      # swift-collections ≥ 1.5 breaks the macOS 26.x SDK build; swift-log ≥ 1.16 needs Swift 6.2 (CI has 6.1).
+      - dependency-name: "*swift-collections*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "*swift-log*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+
+  # Workflows in .github/workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns: ["*"]
