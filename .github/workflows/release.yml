@@ -2,6 +2,11 @@ name: Release
 
 # Push a tag like v1.2.0 to build every platform and publish one GitHub release with all the packages.
 # The app versions come from the tag. macOS is signed with a Developer ID and notarized.
+# The macOS job runs in the `desktop-release` environment (tags v* only, needs the owner's approval: Actions → the run →
+# Review deployments), which holds MACOS_CERTIFICATE_P12 / MACOS_CERTIFICATE_PASSWORD and UPDATE_SIGNING_KEY. After
+# Windows and Linux are built it signs the Mac app and update-signatures.json(.sig) = the SHA-512 of every package,
+# signed with Ed25519 (scripts/sign-update.mjs); the Windows/Linux app installs only updates listed in it
+# (electron/src/main/updateSignature.ts). One approval covers the whole release.
 on:
   push:
     tags: ['v*']
@@ -50,8 +55,10 @@ jobs:
             ${{ matrix.dist }}/dist/latest*.yml
 
   macos:
-    name: Build macOS
+    name: Build macOS and sign the release
+    needs: electron
     runs-on: macos-15
+    environment: desktop-release
     defaults:
       run:
         working-directory: macos
@@ -110,6 +117,24 @@ jobs:
         with:
           name: macos
           path: macos/dist/*.zip
+      # update-signatures.json lists the SHA-512 of every package of the release (Windows, Linux and the Mac zip).
+      - uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/signed
+          merge-multiple: true
+      - name: Sign the update list
+        working-directory: .
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          SIGNED: ${{ runner.temp }}/signed
+        run: |
+          node scripts/sign-update.mjs "$SIGNED" app.remotessh.RemoteSSH "${GITHUB_REF_NAME#v}" electron/src/main/updateSignature.ts
+          mkdir -p "$RUNNER_TEMP/sig" && mv "$SIGNED"/update-signatures.json* "$RUNNER_TEMP/sig"/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: signatures
+          path: ${{ runner.temp }}/sig/update-signatures.json*
+          if-no-files-found: error
 
   release:
     needs: [electron, macos]

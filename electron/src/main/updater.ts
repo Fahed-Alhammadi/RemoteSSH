@@ -3,14 +3,16 @@ import path from 'node:path'
 import { app, dialog, net, shell, type BrowserWindow, type MessageBoxOptions } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { compareVersions, errorMessage } from '../shared/util'
+import { verifyUpdate } from './updateSignature'
 
 /** Releases come from this GitHub repository (also set as `publish` in electron-builder.json). */
 const REPO = 'Fahed-Alhammadi/RemoteSSH'
 
 /**
  * Updates from GitHub releases. The Windows installer, AppImage and .deb builds download and install
- * the new version (electron-updater checks its SHA-512); the portable .exe and .tar.gz builds can only
- * point to the download page.
+ * the new version: electron-updater checks its SHA-512, then the download must be listed in the
+ * release's signed update-signatures.json (updateSignature.ts) before it may be installed. The
+ * portable .exe and .tar.gz builds can only point to the download page.
  */
 export class Updater {
   private busy = false
@@ -40,7 +42,8 @@ export class Updater {
 
   private async checkAndInstall(manual: boolean): Promise<void> {
     autoUpdater.autoDownload = false
-    autoUpdater.autoInstallOnAppQuit = true
+    // Installed on quit only once the download passed verifyUpdate() below.
+    autoUpdater.autoInstallOnAppQuit = false
     const result = await autoUpdater.checkForUpdates()
     if (!result?.isUpdateAvailable) return this.upToDate(manual)
     const version = result.updateInfo.version
@@ -55,12 +58,21 @@ export class Updater {
 
     const onProgress = (p: { percent: number }) => this.window()?.setProgressBar(p.percent / 100)
     autoUpdater.on('download-progress', onProgress)
+    let files: string[]
     try {
-      await autoUpdater.downloadUpdate()
+      files = await autoUpdater.downloadUpdate()
     } finally {
       autoUpdater.off('download-progress', onProgress)
       this.window()?.setProgressBar(-1)
     }
+    try {
+      await verifyUpdate(`https://github.com/${REPO}/releases/download/v${version}`, version, files, (url) => net.fetch(url))
+    } catch (e) {
+      for (const f of files) fs.rmSync(f, { force: true })
+      await this.box({ type: 'error', message: 'The update was not installed', detail: errorMessage(e) })
+      return
+    }
+    autoUpdater.autoInstallOnAppQuit = true
     const restart = await this.box({
       message: `RemoteSSH ${version} is ready to install`,
       detail: 'Restart now to finish updating, or it will be installed when you quit.',

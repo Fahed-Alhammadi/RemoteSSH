@@ -71,7 +71,7 @@ The macOS app is signed with a Developer ID and notarized by Apple, so it opens 
 - **Downloads** can't write outside the folder you chose, and View/Edit shows scripts and programs in their folder instead of opening them. Downloaded files are marked as coming from the internet (quarantine on macOS, Mark-of-the-Web on Windows), so Gatekeeper and SmartScreen check them.
 - **Terminal.** A folder name with control characters is never typed into the shell, so a hostile file name can't run commands. On macOS, links in the terminal open only after you confirm the real address.
 - **Imports** never carry certificate trust from another computer, and sites that use plain FTP are pointed out.
-- **Updates** to the released Mac app are installed only if they are signed by the same developer.
+- **Updates** to the released Mac app are installed only if they are signed by the same developer. On Windows and Linux, an update is installed only if it matches the release's signed list of packages (Ed25519), so a changed or swapped download is refused.
 
 ## Where data is stored
 
