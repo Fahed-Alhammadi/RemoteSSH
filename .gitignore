@@ -19,3 +19,8 @@ keys/
 *.p12
 *.cer
 *.mobileprovision
+.env
+.env.*
+!.env.example
+*.pem
+*.key
