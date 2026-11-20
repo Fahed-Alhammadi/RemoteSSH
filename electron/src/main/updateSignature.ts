@@ -1,7 +1,7 @@
 // Signed updates. Every release carries update-signatures.json (app, version and the SHA-512 of every package) and
 // update-signatures.json.sig (its Ed25519 signature, base64). The release workflow makes them with
-// scripts/sign-update.mjs and the private key UPDATE_SIGNING_KEY, a secret of the `desktop-release` environment (each
-// run needs the owner's approval). A downloaded update is installed only when the signature matches UPDATE_PUBLIC_KEY,
+// scripts/sign-update.mjs and the private key UPDATE_SIGNING_KEY, a secret of the `desktop-release` environment (release
+// tags only). A downloaded update is installed only when the signature matches UPDATE_PUBLIC_KEY,
 // the manifest is for the expected version, and every downloaded file's SHA-512 is listed in it.
 // No Electron imports: tested in tests/updateSignature.test.ts.
 import { createHash, createPublicKey, verify } from 'node:crypto'

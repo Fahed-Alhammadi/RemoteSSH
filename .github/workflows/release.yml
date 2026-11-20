@@ -2,11 +2,10 @@ name: Release
 
 # Push a tag like v1.2.0 to build every platform and publish one GitHub release with all the packages.
 # The app versions come from the tag. macOS is signed with a Developer ID and notarized.
-# The macOS job runs in the `desktop-release` environment (tags v* only, needs the owner's approval: Actions → the run →
-# Review deployments), which holds MACOS_CERTIFICATE_P12 / MACOS_CERTIFICATE_PASSWORD and UPDATE_SIGNING_KEY. After
+# The macOS job runs in the `desktop-release` environment (only v* tags may use it; no approval step), which holds MACOS_CERTIFICATE_P12 / MACOS_CERTIFICATE_PASSWORD and UPDATE_SIGNING_KEY. After
 # Windows and Linux are built it signs the Mac app and update-signatures.json(.sig) = the SHA-512 of every package,
 # signed with Ed25519 (scripts/sign-update.mjs); the Windows/Linux app installs only updates listed in it
-# (electron/src/main/updateSignature.ts). One approval covers the whole release.
+# (electron/src/main/updateSignature.ts).
 on:
   push:
     tags: ['v*']
